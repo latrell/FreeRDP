@@ -2207,7 +2207,13 @@ BOOL freerdp_client_handle_pen(rdpClientContext* cctx, UINT32 flags, INT32 devic
 	if ((flags & FREERDP_PEN_HAS_PRESSURE) != 0)
 	{
 		const double pressure = va_arg(args, double);
-		const double np = (pressure * 1024.0) / pen->max_pressure;
+		double np;
+		if (pen->max_pressure > 0.0)
+			np = (pressure * 1024.0) / pen->max_pressure;
+		else
+			np = pressure * 1024.0;
+		if (np < 0.0) np = 0.0;
+		if (np > 1024.0) np = 1024.0;
 		normalizedpressure = (UINT32)lround(np);
 		WLog_DBG(TAG, "pen pressure %lf -> %" PRIu32, pressure, normalizedpressure);
 		fieldFlags |= RDPINPUT_PEN_CONTACT_PRESSURE_PRESENT;
@@ -2305,7 +2311,7 @@ BOOL freerdp_client_handle_pen(rdpClientContext* cctx, UINT32 flags, INT32 devic
 	{
 		WLog_DBG(TAG, "Pen release %" PRId32, deviceid);
 		pen->pressed = FALSE;
-		pen->hovering = TRUE;
+		pen->hovering = FALSE;
 
 		WINPR_ASSERT(rdpei->PenUpdate);
 		const UINT rc = rdpei->PenUpdate(rdpei, deviceid, fieldFlags, x, y, penFlags,

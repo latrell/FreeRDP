@@ -130,6 +130,15 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 	pYUVData[0] = h264->pYUVData[0];
 	pYUVData[1] = h264->pYUVData[1];
 	pYUVData[2] = h264->pYUVData[2];
+
+	/* YUV passthrough: if callback is set and handles the data, skip CPU YUV→RGB */
+	if (h264->yuvReadyCallback)
+	{
+		if (h264->yuvReadyCallback(h264->yuvReadyContext, pYUVData, h264->iStride,
+		                            h264->width, h264->height, regionRects, numRegionRects))
+			return 1;
+	}
+
 	if (!yuv420_context_decode(h264->yuv, pYUVData, h264->iStride, h264->height, DstFormat,
 	                           pDstData, nDstStep, regionRects, numRegionRects))
 		return -1002;
@@ -647,6 +656,12 @@ static BOOL CALLBACK h264_register_subsystems(WINPR_ATTR_UNUSED PINIT_ONCE once,
 {
 	int i = 0;
 
+#ifdef WITH_OHOS_HWCODEC
+	{
+		subSystems[i] = &g_Subsystem_ohos;
+		i++;
+	}
+#endif
 #ifdef WITH_MEDIACODEC
 	{
 		subSystems[i] = &g_Subsystem_mediacodec;

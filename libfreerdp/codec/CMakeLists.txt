@@ -133,6 +133,11 @@ if(ANDROID AND WITH_MEDIACODEC)
   list(APPEND CODEC_LIBS ${MEDIACODEC})
 endif()
 
+if(WITH_OHOS_HWCODEC)
+  list(APPEND CODEC_SRCS h264_ohos.c)
+  list(APPEND CODEC_LIBS ${OHOS_HWCODEC_LIBS})
+endif()
+
 add_library(freerdp-codecs OBJECT ${CODEC_SRCS})
 freerdp_library_add(${CODEC_LIBS})
 freerdp_object_library_add(freerdp-codecs)

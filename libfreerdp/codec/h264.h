@@ -50,6 +50,13 @@ extern "C"
 		pfnH264SubsystemCompress Compress;
 	};
 
+	/* YUV passthrough callback — set by application layer.
+	 * If set and returns TRUE, avc420_decompress() skips CPU YUV→RGB conversion. */
+	typedef BOOL (*pfnH264YuvReady)(void* context,
+	                                 const BYTE* pYUVData[3], const UINT32 iStride[3],
+	                                 UINT32 width, UINT32 height,
+	                                 const RECTANGLE_16* rects, UINT32 numRects);
+
 	struct S_H264_CONTEXT
 	{
 		BOOL Compressor;
@@ -85,11 +92,17 @@ extern "C"
 
 		void* lumaData;
 		wLog* log;
+
+		pfnH264YuvReady yuvReadyCallback;
+		void* yuvReadyContext;
 	};
 
 	FREERDP_LOCAL BOOL avc420_ensure_buffer(H264_CONTEXT* h264, UINT32 stride, UINT32 width,
 	                                        UINT32 height);
 
+#ifdef WITH_OHOS_HWCODEC
+	extern const H264_CONTEXT_SUBSYSTEM g_Subsystem_ohos;
+#endif
 #ifdef WITH_MEDIACODEC
 	extern const H264_CONTEXT_SUBSYSTEM g_Subsystem_mediacodec;
 #endif

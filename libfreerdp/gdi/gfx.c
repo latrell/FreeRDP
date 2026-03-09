@@ -22,6 +22,7 @@
 #include <freerdp/config.h>
 
 #include "../core/update.h"
+#include "../codec/h264.h"
 
 #include <winpr/assert.h>
 #include <winpr/cast.h>
@@ -603,6 +604,10 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 
 		if (!h264_context_reset(surface->h264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
+
+		/* Propagate YUV passthrough callback from GDI to H264 context */
+		surface->h264->yuvReadyCallback = (pfnH264YuvReady)gdi->yuvReadyCallback;
+		surface->h264->yuvReadyContext = gdi->yuvReadyContext;
 	}
 
 	if (!surface->h264)
@@ -688,6 +693,10 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 
 		if (!h264_context_reset(surface->h264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
+
+		/* Propagate YUV passthrough callback from GDI to H264 context */
+		surface->h264->yuvReadyCallback = (pfnH264YuvReady)gdi->yuvReadyCallback;
+		surface->h264->yuvReadyContext = gdi->yuvReadyContext;
 	}
 
 	if (!surface->h264)

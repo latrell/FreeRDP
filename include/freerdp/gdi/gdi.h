@@ -520,6 +520,10 @@ extern "C"
 		GeometryClientContext* geometry;
 
 		wLog* log;
+
+		/* YUV passthrough — propagated to H264_CONTEXT on surface creation */
+		void* yuvReadyCallback;
+		void* yuvReadyContext;
 	};
 	typedef struct rdp_gdi rdpGdi;
 
