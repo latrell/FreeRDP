@@ -356,6 +356,32 @@ static UINT rdpgfx_send_supported_caps(GENERIC_CHANNEL_CALLBACK* callback)
 		}
 	}
 
+	{
+		BOOL hasAvc420 = FALSE;
+		BOOL hasAvcDisabled = FALSE;
+		for (UINT16 i = 0; i < pdu.capsSetCount; i++)
+		{
+			if (capsSets[i].flags & RDPGFX_CAPS_FLAG_AVC420_ENABLED)
+				hasAvc420 = TRUE;
+			if (capsSets[i].flags & RDPGFX_CAPS_FLAG_AVC_DISABLED)
+				hasAvcDisabled = TRUE;
+		}
+		WLog_Print(gfx->log, WLOG_WARN,
+		           "SendCapsAdvertise: capsSetCount=%" PRIu16
+		           " AVC420=%s AVC_DISABLED=%s WITH_GFX_H264="
+#ifdef WITH_GFX_H264
+		           "YES"
+#else
+		           "NO"
+#endif
+		           " GfxH264=%s GfxAVC444=%s",
+		           pdu.capsSetCount,
+		           hasAvc420 ? "true" : "false",
+		           hasAvcDisabled ? "true" : "false",
+		           freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxH264) ? "true" : "false",
+		           freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxAVC444) ? "true" : "false");
+	}
+
 	return IFCALLRESULT(ERROR_BAD_CONFIGURATION, context->CapsAdvertise, context, &pdu);
 }
 
@@ -384,9 +410,12 @@ static UINT rdpgfx_recv_caps_confirm_pdu(GENERIC_CHANNEL_CALLBACK* callback, wSt
 	Stream_Read_UINT32(s, capsSet.flags);   /* capsData (4 bytes) */
 	gfx->TotalDecodedFrames = 0;
 	gfx->ConnectionCaps = capsSet;
-	WLog_Print(gfx->log, WLOG_DEBUG,
-	           "RecvCapsConfirmPdu: version: %s [0x%08" PRIX32 "] flags: 0x%08" PRIX32 "",
-	           rdpgfx_caps_version_str(capsSet.version), capsSet.version, capsSet.flags);
+	WLog_Print(gfx->log, WLOG_WARN,
+	           "RecvCapsConfirmPdu: version: %s [0x%08" PRIX32 "] flags: 0x%08" PRIX32
+	           " AVC420=%s AVC_DISABLED=%s",
+	           rdpgfx_caps_version_str(capsSet.version), capsSet.version, capsSet.flags,
+	           (capsSet.flags & RDPGFX_CAPS_FLAG_AVC420_ENABLED) ? "true" : "false",
+	           (capsSet.flags & RDPGFX_CAPS_FLAG_AVC_DISABLED) ? "true" : "false");
 
 	if (!context)
 		return ERROR_BAD_CONFIGURATION;

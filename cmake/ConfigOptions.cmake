@@ -166,7 +166,7 @@ if(IOS)
   include(ConfigOptionsiOS)
 endif(IOS)
 
-if(UNIX AND NOT APPLE)
+if(UNIX AND NOT APPLE AND NOT OHOS)
   find_package(ALSA)
   find_package(PulseAudio)
   find_package(OSS)
