@@ -1062,6 +1062,30 @@ static UINT gdi_SurfaceCommand(RdpgfxClientContext* context, const RDPGFX_SURFAC
 	dump_cmd(cmd, gdi->frameId);
 #endif
 
+	/* Notify application layer of the actual codec in use */
+	if (gdi->codecModeCallback)
+	{
+		UINT32 mode = 0; /* Bitmap/Planar/ClearCodec/etc */
+		switch (codecId)
+		{
+			case RDPGFX_CODECID_AVC420:
+				mode = 2;
+				break;
+			case RDPGFX_CODECID_AVC444:
+			case RDPGFX_CODECID_AVC444v2:
+				mode = 3;
+				break;
+			case RDPGFX_CODECID_CAVIDEO:
+			case RDPGFX_CODECID_CAPROGRESSIVE:
+			case RDPGFX_CODECID_CAPROGRESSIVE_V2:
+				mode = 1; /* RFX Progressive */
+				break;
+			default:
+				break;
+		}
+		gdi->codecModeCallback(gdi->codecModeContext, mode);
+	}
+
 	switch (codecId)
 	{
 		case RDPGFX_CODECID_UNCOMPRESSED:

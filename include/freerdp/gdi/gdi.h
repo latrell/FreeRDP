@@ -524,6 +524,10 @@ extern "C"
 		/* YUV passthrough — propagated to H264_CONTEXT on surface creation */
 		void* yuvReadyCallback;
 		void* yuvReadyContext;
+
+		/* Codec mode notification — called from gdi_SurfaceCommand with accurate codecId */
+		void (*codecModeCallback)(void* context, UINT32 codecMode);
+		void* codecModeContext;
 	};
 	typedef struct rdp_gdi rdpGdi;
 

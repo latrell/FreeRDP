@@ -519,34 +519,54 @@ fail:
 	return FALSE;
 }
 
-static BOOL avc444_process_rects(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize,
-                                 BYTE* pDstData, UINT32 DstFormat, UINT32 nDstStep,
-                                 WINPR_ATTR_UNUSED UINT32 nDstWidth, UINT32 nDstHeight,
-                                 const RECTANGLE_16* rects, UINT32 nrRects, avc444_frame_type type)
+/**
+ * @return -1=error, 0=Surface zero-copy (no CPU YUV data), 1=buffer success
+ */
+static int avc444_process_rects(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize,
+                                BYTE* pDstData, UINT32 DstFormat, UINT32 nDstStep,
+                                WINPR_ATTR_UNUSED UINT32 nDstWidth, UINT32 nDstHeight,
+                                const RECTANGLE_16* rects, UINT32 nrRects, avc444_frame_type type)
 {
 	const BYTE* pYUVData[3];
 	BYTE* pYUVDstData[3];
 	UINT32* piDstStride = h264->iYUV444Stride;
 	BYTE** ppYUVDstData = h264->pYUV444Data;
-	const UINT32* piStride = h264->iStride;
 
-	if (h264->subsystem->Decompress(h264, pSrcData, SrcSize) < 0)
-		return FALSE;
+	int status = h264->subsystem->Decompress(h264, pSrcData, SrcSize);
+
+	if (status < 0)
+		return -1;
+
+	if (status == 0)
+	{
+		h264->surfaceDecoding = TRUE;
+		return 0;  /* Surface: zero-copy, no CPU YUV data */
+	}
 
 	pYUVData[0] = h264->pYUVData[0];
 	pYUVData[1] = h264->pYUVData[1];
 	pYUVData[2] = h264->pYUVData[2];
+
+	/* YUV passthrough for LUMA: skip 444 combine + CPU YUV→RGB */
+	if (type == AVC444_LUMA && h264->yuvReadyCallback)
+	{
+		if (h264->yuvReadyCallback(h264->yuvReadyContext, pYUVData, h264->iStride,
+		                            h264->width, h264->height, rects, nrRects))
+			return 1;
+	}
+
 	if (!avc444_ensure_buffer(h264, nDstHeight))
-		return FALSE;
+		return -1;
 
 	pYUVDstData[0] = ppYUVDstData[0];
 	pYUVDstData[1] = ppYUVDstData[1];
 	pYUVDstData[2] = ppYUVDstData[2];
-	if (!yuv444_context_decode(h264->yuv, (BYTE)type, pYUVData, piStride, h264->height, pYUVDstData,
-	                           piDstStride, DstFormat, pDstData, nDstStep, rects, nrRects))
-		return FALSE;
+	if (!yuv444_context_decode(h264->yuv, (BYTE)type, pYUVData, h264->iStride, h264->height,
+	                           pYUVDstData, piDstStride, DstFormat, pDstData, nDstStep, rects,
+	                           nrRects))
+		return -1;
 
-	return TRUE;
+	return 1;
 }
 
 #if defined(AVC444_FRAME_STAT)
@@ -580,39 +600,45 @@ INT32 avc444_decompress(H264_CONTEXT* h264, BYTE op, const RECTANGLE_16* regionR
 
 	switch (op)
 	{
-		case 0: /* YUV420 in stream 1
-		         * Chroma420 in stream 2 */
-			if (!avc444_process_rects(h264, pSrcData, SrcSize, pDstData, DstFormat, nDstStep,
-			                          nDstWidth, nDstHeight, regionRects, numRegionRects,
-			                          AVC444_LUMA))
+		case 0: /* YUV420 in stream 1 + Chroma420 in stream 2 */
+		{
+			int rc1 = avc444_process_rects(h264, pSrcData, SrcSize, pDstData, DstFormat,
+			                               nDstStep, nDstWidth, nDstHeight, regionRects,
+			                               numRegionRects, AVC444_LUMA);
+			if (rc1 < 0)
 				status = -1;
-			else if (!avc444_process_rects(h264, pAuxSrcData, AuxSrcSize, pDstData, DstFormat,
-			                               nDstStep, nDstWidth, nDstHeight, auxRegionRects,
-			                               numAuxRegionRect, chroma))
-				status = -1;
+			else if (rc1 == 0)
+				status = 0;  /* Surface: LUMA on NativeImage, skip CHROMA */
 			else
-				status = 0;
-
+			{
+				int rc1c = avc444_process_rects(h264, pAuxSrcData, AuxSrcSize, pDstData,
+				                                DstFormat, nDstStep, nDstWidth, nDstHeight,
+				                                auxRegionRects, numAuxRegionRect, chroma);
+				status = (rc1c < 0) ? -1 : 0;
+			}
 			break;
+		}
 
 		case 2: /* Chroma420 in stream 1 */
-			if (!avc444_process_rects(h264, pSrcData, SrcSize, pDstData, DstFormat, nDstStep,
-			                          nDstWidth, nDstHeight, regionRects, numRegionRects, chroma))
-				status = -1;
+			if (h264->surfaceDecoding)
+				status = 0;  /* Surface: skip (would corrupt LUMA on NativeImage) */
 			else
-				status = 0;
-
+			{
+				int rc2 = avc444_process_rects(h264, pSrcData, SrcSize, pDstData, DstFormat,
+				                               nDstStep, nDstWidth, nDstHeight, regionRects,
+				                               numRegionRects, chroma);
+				status = (rc2 < 0) ? -1 : 0;
+			}
 			break;
 
 		case 1: /* YUV420 in stream 1 */
-			if (!avc444_process_rects(h264, pSrcData, SrcSize, pDstData, DstFormat, nDstStep,
-			                          nDstWidth, nDstHeight, regionRects, numRegionRects,
-			                          AVC444_LUMA))
-				status = -1;
-			else
-				status = 0;
-
+		{
+			int rc3 = avc444_process_rects(h264, pSrcData, SrcSize, pDstData, DstFormat,
+			                               nDstStep, nDstWidth, nDstHeight, regionRects,
+			                               numRegionRects, AVC444_LUMA);
+			status = (rc3 < 0) ? -1 : 0;
 			break;
+		}
 
 		default: /* WTF? */
 			break;

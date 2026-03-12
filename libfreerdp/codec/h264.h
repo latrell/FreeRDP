@@ -95,6 +95,8 @@ extern "C"
 
 		pfnH264YuvReady yuvReadyCallback;
 		void* yuvReadyContext;
+
+		BOOL surfaceDecoding;  /* TRUE when Decompress returns 0 (zero-copy/Surface mode) */
 	};
 
 	FREERDP_LOCAL BOOL avc420_ensure_buffer(H264_CONTEXT* h264, UINT32 stride, UINT32 width,
