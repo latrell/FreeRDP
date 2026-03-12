@@ -1026,7 +1026,20 @@ static void ohos_uninit(H264_CONTEXT* h264)
 	if (sys->decoder)
 	{
 		if (sys->decoderStarted)
+		{
+			/* Flush 排空所有挂起的输入/输出回调，确保 NativeWindow 的
+			 * BufferQueue 不残留 decoder 持有的 buffer。
+			 * 不 Flush 直接 Stop 会导致 buffer 泄漏——下次创建新 decoder
+			 * 绑定同一 NativeWindow 时 BufferQueue slot 不足，input 回调
+			 * 永远不触发，表现为黑屏。 */
+			OH_AVErrCode flushErr = OH_VideoDecoder_Flush(sys->decoder);
+			if (flushErr != AV_ERR_OK)
+			{
+				WLog_Print(h264->log, WLOG_WARN,
+				           "OHOS decoder: Flush before Stop failed: %d (continuing)", flushErr);
+			}
 			OH_VideoDecoder_Stop(sys->decoder);
+		}
 		OH_VideoDecoder_Destroy(sys->decoder);
 		sys->decoder = NULL;
 	}
