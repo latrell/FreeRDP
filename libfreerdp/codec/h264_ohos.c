@@ -50,8 +50,10 @@ static const int OHOS_MINIMUM_HEIGHT = 240;
 /* External bridge functions — defined in libentry (gdi_bridge.cpp).
  * Resolved at final link time when FreeRDP static lib is linked into libentry.so. */
 extern OHNativeWindow* surface_decoder_request_native_window(void* session, int width, int height);
+extern OHNativeWindow* surface_decoder_reuse_or_create_native_window(void* session, int width, int height);
 extern void surface_decoder_notify_frame(void* session);
 extern void surface_decoder_destroy_native_image(void* session);
+extern void surface_decoder_deactivate_oes(void* session);
 extern void surface_decoder_activate_oes(void* session);
 extern void surface_decoder_request_refresh(void* session);
 extern void surface_decoder_update_output_size(void* session, int width, int height);
@@ -396,7 +398,7 @@ static void surface_on_output(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* bu
 			memset(&attr, 0, sizeof(attr));
 			if (buffer)
 				OH_AVBuffer_GetBufferAttr(buffer, &attr);
-			WLog_Print(h264->log, WLOG_WARN,
+			WLog_Print(h264->log, WLOG_DEBUG,
 			           "OHOS Surface output: frame=%d index=%u flags=0x%x pts=%lld",
 			           sys->outputFrameCount, (unsigned)index,
 			           attr.flags, (long long)attr.pts);
@@ -436,7 +438,7 @@ static void surface_on_stream_changed(OH_AVCodec* codec, OH_AVFormat* format, vo
 	OH_AVFormat_GetIntValue(format, "video_crop_left", &cropLeft);
 	OH_AVFormat_GetIntValue(format, "video_crop_right", &cropRight);
 
-	WLog_Print(h264->log, WLOG_WARN,
+	WLog_Print(h264->log, WLOG_INFO,
 	           "OHOS Surface decoder: format changed — output %dx%d stride=%d crop(T=%d B=%d L=%d R=%d)",
 	           w, h, stride, cropTop, cropBottom, cropLeft, cropRight);
 
@@ -468,8 +470,8 @@ static bool start_surface_mode(H264_CONTEXT* h264, H264_CONTEXT_OHOS* sys, int32
 	WLog_Print(h264->log, WLOG_INFO,
 	           "OHOS decoder: attempting Surface mode %dx%d", w, h);
 
-	/* Step 1: Request NativeWindow from EglRenderer (blocking, 5s timeout) */
-	sys->surfaceWindow = surface_decoder_request_native_window(
+	/* Step 1: Reuse existing NativeWindow if size matches, or create new one */
+	sys->surfaceWindow = surface_decoder_reuse_or_create_native_window(
 	    h264->yuvReadyContext, w, h);
 	if (!sys->surfaceWindow)
 	{
@@ -1012,7 +1014,10 @@ static void ohos_uninit(H264_CONTEXT* h264)
 #ifdef WITH_OHOS_HWCODEC_SURFACE
 	if (sys->surfaceMode && h264->yuvReadyContext)
 	{
-		surface_decoder_destroy_native_image(h264->yuvReadyContext);
+		/* Don't destroy NativeImage — it is managed by EglRenderer and can be reused
+		 * by the next decoder instance (e.g., after GFX DVC reconnect).
+		 * Only deactivate OES mode so BGRA fallback can work if needed. */
+		surface_decoder_deactivate_oes(h264->yuvReadyContext);
 		sys->surfaceWindow = NULL;
 		sys->surfaceMode = false;
 	}
