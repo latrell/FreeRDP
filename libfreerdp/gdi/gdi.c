@@ -1478,7 +1478,9 @@ void gdi_free(freerdp* instance)
 	if (!instance || !instance->context)
 		return;
 
-	gdi = instance->context->gdi;
+	context = instance->context;
+	gdi = context->gdi;
+	context->gdi = NULL;  /* NULL before free — close the dangling-pointer window */
 
 	if (gdi)
 	{
@@ -1487,10 +1489,8 @@ void gdi_free(freerdp* instance)
 		free(gdi);
 	}
 
-	context = instance->context;
 	cache_free(context->cache);
 	context->cache = NULL;
-	instance->context->gdi = (rdpGdi*)NULL;
 }
 
 BOOL gdi_send_suppress_output(rdpGdi* gdi, BOOL suppress)
