@@ -55,6 +55,17 @@ extern "C"
 		pcDrdynvcOnChannelDetached OnChannelDetached;
 	};
 
+	/**
+	 * Process DVC PDU data received via UDP multitransport tunnel (MS-RDPEMT).
+	 * Called by the application's event loop after reading from the EMT tunnel.
+	 * PDU format is identical to TCP DRDYNVC channel (MS-RDPEDYC).
+	 *
+	 * @param data   Raw DVC PDU bytes (EMT header already stripped)
+	 * @param length Data length
+	 * @return 0 on success, otherwise a Win32 error code
+	 */
+	FREERDP_API UINT drdynvc_process_udp_data(const BYTE* data, UINT32 length);
+
 #ifdef __cplusplus
 }
 #endif
