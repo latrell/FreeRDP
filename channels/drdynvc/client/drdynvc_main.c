@@ -869,10 +869,16 @@ static UINT dvcman_receive_channel_data(DVCMAN_CHANNEL* channel, wStream* data,
 		/* Fragmented data */
 		if (Stream_GetPosition(channel->dvc_data) + dataSize > channel->dvc_data_length)
 		{
-			WLog_Print(drdynvc->log, WLOG_ERROR, "data exceeding declared length!");
+			/* Soft-Sync TCP→UDP 迁移期间，同一通道可能同时收到 TCP 和 UDP 的分片。
+			 * TCP 的 DATA_FIRST 声明了长度 L，但 UDP 的分片来自不同帧，超出 L。
+			 * 丢弃旧分片缓冲区（不关闭通道），让下一个 DATA_FIRST 重新开始。 */
+			WLog_Print(drdynvc->log, WLOG_WARN,
+			           "data exceeding declared length (pos=%" PRIuz " + %" PRIuz " > %" PRIu32
+			           "), discarding stale fragment",
+			           Stream_GetPosition(channel->dvc_data), dataSize,
+			           channel->dvc_data_length);
 			Stream_Release(channel->dvc_data);
 			channel->dvc_data = NULL;
-			status = ERROR_INVALID_DATA;
 			goto out;
 		}
 
@@ -1362,7 +1368,14 @@ static UINT drdynvc_process_data_first(drdynvcPlugin* drdynvc, int Sp, int cbChI
 	if (status == CHANNEL_RC_OK)
 		status = dvcman_receive_channel_data(channel, s, ThreadingFlags);
 
-	if (status != CHANNEL_RC_OK)
+	if (status == ERROR_INVALID_DATA)
+	{
+		WLog_Print(drdynvc->log, WLOG_WARN,
+		           "ChannelId %" PRIu32 " data_first invalid, discarding (keeping channel open)",
+		           ChannelId);
+		status = CHANNEL_RC_OK;
+	}
+	else if (status != CHANNEL_RC_OK)
 		status = dvcman_channel_close(channel, FALSE, FALSE);
 
 out:
@@ -1432,7 +1445,16 @@ static UINT drdynvc_process_data(drdynvcPlugin* drdynvc, int Sp, int cbChId, wSt
 	}
 
 	status = dvcman_receive_channel_data(channel, s, ThreadingFlags);
-	if (status != CHANNEL_RC_OK)
+	if (status == ERROR_INVALID_DATA)
+	{
+		/* Soft-Sync TCP→UDP 迁移期间，不同帧的分片可能被混合重组导致上层解析失败。
+		 * 不关闭通道——丢弃损坏数据后等下一个 DATA_FIRST 自然恢复。 */
+		WLog_Print(drdynvc->log, WLOG_WARN,
+		           "ChannelId %" PRIu32 " data invalid, discarding (keeping channel open)",
+		           ChannelId);
+		status = CHANNEL_RC_OK;
+	}
+	else if (status != CHANNEL_RC_OK)
 		status = dvcman_channel_close(channel, FALSE, FALSE);
 
 out:
