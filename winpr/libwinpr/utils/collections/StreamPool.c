@@ -316,6 +316,9 @@ void Stream_AddRef(wStream* s)
 
 void Stream_Release(wStream* s)
 {
+	if (!s)
+		return;
+
 	WINPR_ASSERT(s);
 
 	if (s->count > 0)

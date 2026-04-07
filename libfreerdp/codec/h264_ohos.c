@@ -101,6 +101,10 @@ typedef struct
 #else
 	bool decoderStarted;     /* Decoder configured and started (deferred from init) */
 #endif
+
+	int totalDecompressCalls; /* Total decompress calls (for first-frame tolerance) */
+	int consecutiveTimeouts;  /* Consecutive output timeout count */
+	bool hasProducedOutput;   /* True once decoder has produced at least one frame */
 } H264_CONTEXT_OHOS;
 
 /* ======================================================================
@@ -612,6 +616,10 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 			/* Surface not available, fall back to buffer mode */
 			if (!start_buffer_mode(h264, sys, w, h_val))
 				return -1;
+			/* Request IDR key frame — without this the decoder only receives
+			 * P-frames and cannot produce output, causing prolonged black screen. */
+			if (h264->yuvReadyContext)
+				surface_decoder_request_refresh(h264->yuvReadyContext);
 		}
 	}
 
@@ -811,6 +819,10 @@ surface_path:
 	{
 		if (!start_buffer_mode(h264, sys, w, h_val))
 			return -1;
+		/* Request IDR key frame — without this the decoder only receives
+		 * P-frames and cannot produce output, causing prolonged black screen. */
+		if (h264->yuvReadyContext)
+			surface_decoder_request_refresh(h264->yuvReadyContext);
 	}
 #endif /* WITH_OHOS_HWCODEC_SURFACE */
 
@@ -885,7 +897,13 @@ surface_path:
 		sys->outputHeight = newH;
 		sys->outputStride = 0;
 		sys->codecError = false;
+		sys->totalDecompressCalls = 0;
+		sys->consecutiveTimeouts = 0;
+		sys->hasProducedOutput = false;
 		WLog_Print(h264->log, WLOG_INFO, "OHOS decoder: resize complete %dx%d", newW, newH);
+		/* DPB cleared by Reset — request IDR to avoid P-frame-only timeout */
+		if (h264->yuvReadyContext)
+			surface_decoder_request_refresh(h264->yuvReadyContext);
 	}
 
 	/* Wait for an input buffer from the async callback */
@@ -930,11 +948,48 @@ surface_path:
 		return -1;
 	}
 
-	/* Wait for decoded output */
-	if (!wait_output_ready(sys, 2000))
+	/* Wait for decoded output.
+	 *
+	 * CRITICAL: ohos_decompress runs on the RDP event loop thread. While we block
+	 * here, no new GFX frames (including IDR key frames) can be processed. The
+	 * decoder often needs an IDR to produce first output, but the IDR arrives as
+	 * a subsequent GFX surface command that can only be processed when this call
+	 * returns. A long timeout here creates a deadlock: we wait for output that
+	 * requires data that can't arrive until we stop waiting.
+	 *
+	 * Strategy: Before the decoder has produced any output, use a very short
+	 * timeout (just a quick poll) so the event loop keeps running. Each call feeds
+	 * one frame to the decoder and quickly returns, allowing the next frame
+	 * (possibly the IDR) to be processed. Once the decoder has proven it can
+	 * produce output, use normal timeouts. */
 	{
-		WLog_Print(h264->log, WLOG_ERROR, "OHOS decoder: timeout waiting for output");
-		return -1;
+		int timeoutMs;
+		sys->totalDecompressCalls++;
+
+		if (!sys->hasProducedOutput)
+			timeoutMs = 100;   /* Pre-first-output: quick poll, don't block event loop.
+			                    * The IDR key frame needed by the decoder arrives as a
+			                    * subsequent GFX command on this same thread. */
+		else if (sys->consecutiveTimeouts >= 5)
+			timeoutMs = 200;   /* After many timeouts: short poll to avoid event loop stall */
+		else
+			timeoutMs = 2000;  /* Normal: 2s */
+
+		if (!wait_output_ready(sys, timeoutMs))
+		{
+			sys->consecutiveTimeouts++;
+			WLog_Print(h264->log, WLOG_WARN,
+			           "OHOS decoder: timeout waiting for output (attempt %d, timeout %dms)",
+			           sys->consecutiveTimeouts, timeoutMs);
+			return -1;
+		}
+		sys->consecutiveTimeouts = 0;
+		if (!sys->hasProducedOutput)
+		{
+			sys->hasProducedOutput = true;
+			WLog_Print(h264->log, WLOG_INFO,
+			           "OHOS decoder: first output after %d calls", sys->totalDecompressCalls);
+		}
 	}
 
 	if (!sys->outputBuffer)
