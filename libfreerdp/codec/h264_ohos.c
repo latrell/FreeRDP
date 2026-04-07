@@ -58,6 +58,7 @@ extern void surface_decoder_activate_oes(void* session);
 extern void surface_decoder_request_refresh(void* session);
 extern void surface_decoder_update_output_size(void* session, int width, int height);
 extern void surface_decoder_update_crop_rect(void* session, int top, int bottom, int left, int right);
+extern bool surface_decoder_is_permanently_unavailable(void* session);
 #endif
 
 typedef struct
@@ -615,9 +616,11 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 	}
 
 	/* Already in buffer mode but Surface should be available → retry upgrade
-	 * (up to 30 attempts, covering the EglRenderer initialization window) */
+	 * (up to 30 attempts, covering the EglRenderer initialization window).
+	 * Skip retries entirely if Surface mode is permanently unavailable (e.g. DGLES OES bug). */
 	if (sys->decoderStarted && !sys->surfaceMode
-	    && h264->yuvReadyContext && sys->surfaceRetryCount < 30)
+	    && h264->yuvReadyContext && sys->surfaceRetryCount < 30
+	    && !surface_decoder_is_permanently_unavailable(h264->yuvReadyContext))
 	{
 		sys->surfaceRetryCount++;
 
