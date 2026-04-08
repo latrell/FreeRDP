@@ -619,6 +619,11 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 		return ERROR_INTERNAL_ERROR;
 
 	meta = &(bs->meta);
+	/* Pass surface output origin and actual dimensions to codec context for multi-monitor OES rendering */
+	surface->h264->surfaceOriginX = (int32_t)surface->outputOriginX;
+	surface->h264->surfaceOriginY = (int32_t)surface->outputOriginY;
+	surface->h264->surfaceWidth = (int32_t)surface->width;
+	surface->h264->surfaceHeight = (int32_t)surface->height;
 	rc = avc420_decompress(surface->h264, bs->data, bs->length, surface->data, surface->format,
 	                       surface->scanline, surface->width, surface->height, meta->regionRects,
 	                       meta->numRegionRects);
@@ -711,6 +716,11 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 	avc2 = &bs->bitstream[1];
 	meta1 = &avc1->meta;
 	meta2 = &avc2->meta;
+	/* Pass surface output origin and actual dimensions to codec context for multi-monitor OES rendering */
+	surface->h264->surfaceOriginX = (int32_t)surface->outputOriginX;
+	surface->h264->surfaceOriginY = (int32_t)surface->outputOriginY;
+	surface->h264->surfaceWidth = (int32_t)surface->width;
+	surface->h264->surfaceHeight = (int32_t)surface->height;
 	rc = avc444_decompress(surface->h264, bs->LC, meta1->regionRects, meta1->numRegionRects,
 	                       avc1->data, avc1->length, meta2->regionRects, meta2->numRegionRects,
 	                       avc2->data, avc2->length, surface->data, surface->format,

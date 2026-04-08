@@ -49,16 +49,22 @@ static const int OHOS_MINIMUM_HEIGHT = 240;
 #ifdef WITH_OHOS_HWCODEC_SURFACE
 /* External bridge functions — defined in libentry (gdi_bridge.cpp).
  * Resolved at final link time when FreeRDP static lib is linked into libentry.so. */
-extern OHNativeWindow* surface_decoder_request_native_window(void* session, int width, int height);
-extern OHNativeWindow* surface_decoder_reuse_or_create_native_window(void* session, int width, int height);
-extern void surface_decoder_notify_frame(void* session);
-extern void surface_decoder_destroy_native_image(void* session);
-extern void surface_decoder_deactivate_oes(void* session);
-extern void surface_decoder_activate_oes(void* session);
+extern OHNativeWindow* surface_decoder_request_native_window(void* session, void* surfaceKey,
+                                                             int width, int height,
+                                                             int originX, int originY,
+                                                             int contentW, int contentH);
+extern OHNativeWindow* surface_decoder_reuse_or_create_native_window(void* session, void* surfaceKey,
+                                                                      int width, int height,
+                                                                      int originX, int originY,
+                                                                      int contentW, int contentH);
+extern void surface_decoder_notify_frame(void* session, void* surfaceKey);
+extern void surface_decoder_destroy_native_image(void* session, void* surfaceKey);
+extern void surface_decoder_deactivate_oes(void* session, void* surfaceKey);
+extern void surface_decoder_activate_oes(void* session, void* surfaceKey);
 extern void surface_decoder_request_refresh(void* session);
-extern void surface_decoder_update_output_size(void* session, int width, int height);
-extern void surface_decoder_update_crop_rect(void* session, int top, int bottom, int left, int right);
-extern bool surface_decoder_is_permanently_unavailable(void* session);
+extern void surface_decoder_update_output_size(void* session, void* surfaceKey, int width, int height);
+extern void surface_decoder_update_crop_rect(void* session, void* surfaceKey, int top, int bottom, int left, int right);
+extern bool surface_decoder_is_permanently_unavailable(void* session, void* surfaceKey);
 #endif
 
 typedef struct
@@ -453,14 +459,14 @@ static void surface_on_stream_changed(OH_AVCodec* codec, OH_AVFormat* format, vo
 		sys->outputHeight = h;
 		/* Notify renderer of actual decoder output buffer size (with macroblock alignment) */
 		if (h264->yuvReadyContext)
-			surface_decoder_update_output_size(h264->yuvReadyContext, w, h);
+			surface_decoder_update_output_size(h264->yuvReadyContext, (void*)h264, w, h);
 	}
 	if (stride > 0)
 		sys->outputStride = stride;
 
 	/* Pass precise crop rect to renderer for accurate content boundary clipping */
 	if (h264->yuvReadyContext && (cropRight > 0 || cropBottom > 0))
-		surface_decoder_update_crop_rect(h264->yuvReadyContext, cropTop, cropBottom, cropLeft, cropRight);
+		surface_decoder_update_crop_rect(h264->yuvReadyContext, (void*)h264, cropTop, cropBottom, cropLeft, cropRight);
 }
 
 /**
@@ -477,7 +483,9 @@ static bool start_surface_mode(H264_CONTEXT* h264, H264_CONTEXT_OHOS* sys, int32
 
 	/* Step 1: Reuse existing NativeWindow if size matches, or create new one */
 	sys->surfaceWindow = surface_decoder_reuse_or_create_native_window(
-	    h264->yuvReadyContext, w, h);
+	    h264->yuvReadyContext, (void*)h264, w, h,
+	    h264->surfaceOriginX, h264->surfaceOriginY,
+	    h264->surfaceWidth, h264->surfaceHeight);
 	if (!sys->surfaceWindow)
 	{
 		WLog_Print(h264->log, WLOG_DEBUG,
@@ -552,14 +560,14 @@ static bool start_surface_mode(H264_CONTEXT* h264, H264_CONTEXT_OHOS* sys, int32
 	sys->outputWidth = w;
 	sys->outputHeight = h;
 	sys->outputStride = 0;
-	surface_decoder_activate_oes(h264->yuvReadyContext);
+	surface_decoder_activate_oes(h264->yuvReadyContext, (void*)h264);
 
 	WLog_Print(h264->log, WLOG_INFO,
 	           "Surface mode H.264 decoder activated %dx%d", w, h);
 	return true;
 
 cleanup:
-	surface_decoder_destroy_native_image(h264->yuvReadyContext);
+	surface_decoder_destroy_native_image(h264->yuvReadyContext, (void*)h264);
 	sys->surfaceWindow = NULL;
 	return false;
 }
@@ -628,7 +636,7 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 	 * Skip retries entirely if Surface mode is permanently unavailable (e.g. DGLES OES bug). */
 	if (sys->decoderStarted && !sys->surfaceMode
 	    && h264->yuvReadyContext && sys->surfaceRetryCount < 30
-	    && !surface_decoder_is_permanently_unavailable(h264->yuvReadyContext))
+	    && !surface_decoder_is_permanently_unavailable(h264->yuvReadyContext, (void*)h264))
 	{
 		sys->surfaceRetryCount++;
 
@@ -686,7 +694,9 @@ surface_path:
 
 			/* Re-request NativeImage for new resolution */
 			sys->surfaceWindow = surface_decoder_request_native_window(
-			    h264->yuvReadyContext, newW, newH);
+			    h264->yuvReadyContext, (void*)h264, newW, newH,
+			    h264->surfaceOriginX, h264->surfaceOriginY,
+			    h264->surfaceWidth, h264->surfaceHeight);
 			if (!sys->surfaceWindow)
 			{
 				WLog_Print(h264->log, WLOG_ERROR,
@@ -764,7 +774,7 @@ surface_path:
 			sys->codecError = false;
 
 			/* Re-activate OES mode for new NativeImage */
-			surface_decoder_activate_oes(h264->yuvReadyContext);
+			surface_decoder_activate_oes(h264->yuvReadyContext, (void*)h264);
 			/* Force IDR after resize (same DPB-empty issue as initial upgrade) */
 			surface_decoder_request_refresh(h264->yuvReadyContext);
 			WLog_Print(h264->log, WLOG_INFO,
@@ -1075,7 +1085,7 @@ static void ohos_uninit(H264_CONTEXT* h264)
 		/* Don't destroy NativeImage — it is managed by EglRenderer and can be reused
 		 * by the next decoder instance (e.g., after GFX DVC reconnect).
 		 * Only deactivate OES mode so BGRA fallback can work if needed. */
-		surface_decoder_deactivate_oes(h264->yuvReadyContext);
+		surface_decoder_deactivate_oes(h264->yuvReadyContext, (void*)h264);
 		sys->surfaceWindow = NULL;
 		sys->surfaceMode = false;
 	}

@@ -97,6 +97,11 @@ extern "C"
 		void* yuvReadyContext;
 
 		BOOL surfaceDecoding;  /* TRUE when Decompress returns 0 (zero-copy/Surface mode) */
+
+	int32_t surfaceOriginX; /* GFX surface output origin X in desktop coordinates */
+	int32_t surfaceOriginY; /* GFX surface output origin Y in desktop coordinates */
+	int32_t surfaceWidth;   /* GFX surface actual content width (unaligned) */
+	int32_t surfaceHeight;  /* GFX surface actual content height (unaligned) */
 	};
 
 	FREERDP_LOCAL BOOL avc420_ensure_buffer(H264_CONTEXT* h264, UINT32 stride, UINT32 width,
