@@ -104,6 +104,7 @@ typedef struct
 	OHNativeWindow* surfaceWindow;  /* NativeImage-provided output window */
 	int surfaceRetryCount;   /* Surface upgrade retry count */
 	int outputFrameCount;    /* Total output frames (diagnostic) */
+	bool hasSpsReceived;     /* True once decoder has received SPS/PPS in surface mode */
 #else
 	bool decoderStarted;     /* Decoder configured and started (deferred from init) */
 #endif
@@ -312,6 +313,34 @@ static void clear_sync_state(H264_CONTEXT_OHOS* sys)
 	sys->outputIndex = -1;
 	sys->formatChanged = false;
 	pthread_mutex_unlock(&sys->outputMutex);
+}
+
+/* ======================================================================
+ * H.264 NAL unit inspection
+ * ====================================================================== */
+
+/**
+ * Check if H.264 Annex-B bitstream contains an SPS NAL unit (type 7).
+ * A freshly created hardware decoder MUST receive SPS/PPS before any slice data,
+ * otherwise it reports "missing parameter sets" and cannot decode.
+ */
+static bool has_sps_nalu(const BYTE* data, UINT32 size)
+{
+	for (UINT32 i = 0; i + 4 < size; i++)
+	{
+		if (data[i] != 0 || data[i + 1] != 0)
+			continue;
+
+		UINT32 off = 0;
+		if (data[i + 2] == 1)
+			off = i + 3;
+		else if (data[i + 2] == 0 && i + 4 < size && data[i + 3] == 1)
+			off = i + 4;
+
+		if (off > 0 && off < size && ((data[off] & 0x1F) == 7))
+			return true;
+	}
+	return false;
 }
 
 /* ======================================================================
@@ -616,18 +645,18 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 	{
 		if (h264->yuvReadyContext && start_surface_mode(h264, sys, w, h_val))
 		{
-			/* Request IDR in case GFX pipeline is mid-stream (not at first key frame) */
-			surface_decoder_request_refresh(h264->yuvReadyContext);
+			/* Refresh is now coordinated by surface_decoder_activate_oes() in
+			 * gdi_bridge.cpp — it waits for ALL renderers to have active OES
+			 * surfaces, then issues a single session-level suppress+resume.
+			 * This avoids the timing issue where per-surface refresh causes
+			 * later surfaces to receive P-frames without SPS/PPS. */
 		}
 		else
 		{
 			/* Surface not available, fall back to buffer mode */
 			if (!start_buffer_mode(h264, sys, w, h_val))
 				return -1;
-			/* Request IDR key frame — without this the decoder only receives
-			 * P-frames and cannot produce output, causing prolonged black screen. */
-			if (h264->yuvReadyContext)
-				surface_decoder_request_refresh(h264->yuvReadyContext);
+			/* Refresh coordinated by surface_decoder_activate_oes() */
 		}
 	}
 
@@ -647,14 +676,14 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 		{
 			clear_sync_state(sys);
 			sys->decoderStarted = false;
+			sys->hasSpsReceived = false;
 
 			if (start_surface_mode(h264, sys, w, h_val))
 			{
-				/* DPB was cleared by Reset() above — force server to send IDR key frame,
-				 * otherwise P-frames can't reconstruct non-dirty regions (green NV12). */
-				surface_decoder_request_refresh(h264->yuvReadyContext);
+				/* DPB was cleared by Reset() above — refresh is coordinated by
+				 * surface_decoder_activate_oes() in gdi_bridge.cpp. */
 				WLog_Print(h264->log, WLOG_INFO,
-				    "OHOS: Surface mode activated after %d retries (refresh requested)",
+				    "OHOS: Surface mode activated after %d retries",
 				    sys->surfaceRetryCount);
 				goto surface_path;
 			}
@@ -777,8 +806,28 @@ surface_path:
 			surface_decoder_activate_oes(h264->yuvReadyContext, (void*)h264);
 			/* Force IDR after resize (same DPB-empty issue as initial upgrade) */
 			surface_decoder_request_refresh(h264->yuvReadyContext);
+			sys->hasSpsReceived = false;
 			WLog_Print(h264->log, WLOG_INFO,
 			           "OHOS Surface decoder: resize complete %dx%d (refresh requested)", newW, newH);
+		}
+
+		/* Safety net: freshly started decoder MUST receive SPS/PPS before any slice.
+		 * If the current bitstream lacks SPS, skip it — the coordinated refresh
+		 * (from surface_decoder_activate_oes) will deliver an IDR with SPS/PPS.
+		 * This fixes multi-monitor black screen when a surface's first frame
+		 * arrives without parameter sets due to a prior session-level refresh. */
+		if (!sys->hasSpsReceived)
+		{
+			if (has_sps_nalu(pSrcData, SrcSize))
+			{
+				sys->hasSpsReceived = true;
+			}
+			else
+			{
+				WLog_Print(h264->log, WLOG_WARN,
+				           "OHOS Surface decoder: frame without SPS skipped, waiting for IDR");
+				return 0;
+			}
 		}
 
 		/* Wait for input buffer, push NAL, return 0 (no CPU output) */
