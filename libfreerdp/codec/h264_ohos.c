@@ -653,10 +653,14 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 		}
 		else
 		{
-			/* Surface not available, fall back to buffer mode */
+			/* Surface not available, fall back to buffer mode.
+			 * activate_oes() 只在 Surface 成功路径中调用，Buffer 路径必须自己
+			 * 请求 IDR，否则解码器只会收到 P 帧永远无法产出首帧（黑屏）。
+			 * 与下方 #else 分支保持一致。 */
 			if (!start_buffer_mode(h264, sys, w, h_val))
 				return -1;
-			/* Refresh coordinated by surface_decoder_activate_oes() */
+			if (h264->yuvReadyContext)
+				surface_decoder_request_refresh(h264->yuvReadyContext);
 		}
 	}
 
@@ -693,6 +697,9 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 				sys->codecError = true;
 				return -1;
 			}
+			/* Reset() 已清空 DPB，必须请求 IDR，否则 P 帧无法重建非脏区域。 */
+			if (h264->yuvReadyContext)
+				surface_decoder_request_refresh(h264->yuvReadyContext);
 		}
 	}
 
