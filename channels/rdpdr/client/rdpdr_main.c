@@ -1477,6 +1477,10 @@ static UINT rdpdr_send_device_list_announce_request(rdpdrPlugin* rdpdr, BOOL use
 
 	if (arg.count == 0)
 	{
+		/* [DIAG/rdpdr-udp] #10b 设备遍历结果为空 — 可能是 userLoggedOn 过滤或设备列表为空 */
+		WLog_Print(rdpdr->log, WLOG_WARN,
+		           "[DIAG/rdpdr-udp] #10b announce_count_zero userLoggedOn=%d state=%s",
+		           userLoggedOn ? 1 : 0, rdpdr_state_str(rdpdr->state));
 		Stream_Release(s);
 		return CHANNEL_RC_OK;
 	}
@@ -1485,7 +1489,17 @@ static UINT rdpdr_send_device_list_announce_request(rdpdrPlugin* rdpdr, BOOL use
 	Stream_Write_UINT32(s, arg.count);
 	Stream_SetPosition(s, pos);
 	Stream_SealLength(s);
-	return rdpdr_send(rdpdr, s);
+	/* [DIAG/rdpdr-udp] #10 即将通过 rdpdr_send 发送 DeviceListAnnounce — WARN 级别以穿透 setDebugLogLevel(WARN) 过滤 */
+	WLog_Print(rdpdr->log, WLOG_WARN,
+	           "[DIAG/rdpdr-udp] #10 announce_before_send count=%u userLoggedOn=%d state=%s stream_len=%zu",
+	           arg.count, userLoggedOn ? 1 : 0, rdpdr_state_str(rdpdr->state), pos);
+	{
+		UINT rc = rdpdr_send(rdpdr, s);
+		/* [DIAG/rdpdr-udp] #11 rdpdr_send 返回值 */
+		WLog_Print(rdpdr->log, WLOG_WARN,
+		           "[DIAG/rdpdr-udp] #11 announce_after_send rc=%u", rc);
+		return rc;
+	}
 }
 
 UINT rdpdr_try_send_device_list_announce_request(rdpdrPlugin* rdpdr)
@@ -1493,8 +1507,9 @@ UINT rdpdr_try_send_device_list_announce_request(rdpdrPlugin* rdpdr)
 	WINPR_ASSERT(rdpdr);
 	if (rdpdr->state != RDPDR_CHANNEL_STATE_READY)
 	{
-		WLog_Print(rdpdr->log, WLOG_DEBUG,
-		           "hotplug event received, but channel [RDPDR] is not ready (state %s), ignoring.",
+		/* [DIAG/rdpdr-udp] #13 state != READY 导致 announce 被跳过 */
+		WLog_Print(rdpdr->log, WLOG_WARN,
+		           "[DIAG/rdpdr-udp] #13 try_send_announce_skipped state=%s (not READY)",
 		           rdpdr_state_str(rdpdr->state));
 		return CHANNEL_RC_OK;
 	}
@@ -1767,6 +1782,15 @@ static UINT rdpdr_process_receive(rdpdrPlugin* rdpdr, wStream* s)
 		Stream_Read_UINT16(s, component); /* Component (2 bytes) */
 		Stream_Read_UINT16(s, packetId);  /* PacketId (2 bytes) */
 
+		/* [DIAG/rdpdr-udp] #R1 任何到达 rdpdr_process_receive 的 PDU — 过滤掉高频 IOREQUEST 避免刷屏 */
+		if (!(component == RDPDR_CTYP_CORE && packetId == PAKID_CORE_DEVICE_IOREQUEST))
+		{
+			WLog_Print(rdpdr->log, WLOG_WARN,
+			           "[DIAG/rdpdr-udp] #R1 pdu_received component=0x%04" PRIx16
+			           " packetId=0x%04" PRIx16 " state=%s",
+			           component, packetId, rdpdr_state_str(rdpdr->state));
+		}
+
 		if (component == RDPDR_CTYP_CORE)
 		{
 			if (!rdpdr_check_channel_state(rdpdr, packetId))
@@ -1861,6 +1885,12 @@ static UINT rdpdr_process_receive(rdpdrPlugin* rdpdr, wStream* s)
 					{
 						Stream_Read_UINT32(s, deviceId);
 						Stream_Read_UINT32(s, status);
+
+						/* [DIAG/rdpdr-udp] #12 服务端对 DeviceListAnnounce 的响应 — WARN 以穿透过滤 */
+						WLog_Print(rdpdr->log, WLOG_WARN,
+						           "[DIAG/rdpdr-udp] #12 device_reply deviceId=%" PRIu32
+						           " status=0x%08" PRIx32,
+						           deviceId, status);
 
 						if (status != 0)
 							devman_unregister_device(rdpdr->devman, (void*)((size_t)deviceId));
