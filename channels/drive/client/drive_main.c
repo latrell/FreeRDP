@@ -219,14 +219,12 @@ static UINT drive_process_irp_create(DRIVE_DEVICE* drive, IRP* irp)
 				break;
 		}
 
-		if (allocationSize > 0)
-		{
-			const BYTE buffer[] = { '\0' };
-			if (!drive_file_seek(file, allocationSize - sizeof(buffer)))
-				return ERROR_INTERNAL_ERROR;
-			if (!drive_file_write(file, buffer, sizeof(buffer)))
-				return ERROR_INTERNAL_ERROR;
-		}
+		/* allocationSize is a *hint* per MS-FSCC; pre-extending the file with a
+		 * sparse zero write makes some Windows file-copy implementations decide
+		 * the destination is "already populated" and stop sending WRITE IRPs,
+		 * resulting in a hang/freeze. Skip the pre-allocation — modern filesystems
+		 * grow files on write anyway. */
+		(void)allocationSize;
 	}
 
 	Stream_Write_UINT32(irp->output, FileId);

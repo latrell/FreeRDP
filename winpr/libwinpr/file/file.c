@@ -981,23 +981,38 @@ static HANDLE FileCreateFileA(LPCSTR lpFileName, DWORD dwDesiredAccess, DWORD dw
 	if (dwShareMode & (FILE_SHARE_READ | FILE_SHARE_WRITE))
 	{
 #ifdef __sun
-		if (fcntl(fileno(pFile->fp), F_SETLKW, &lock) == -1)
+		lock.l_type = (lock.l_type == F_RDLCK) ? F_RDLCK : F_WRLCK;
+		if (fcntl(fileno(pFile->fp), F_SETLK, &lock) == -1)
 #else
-		if (flock(fileno(pFile->fp), lock) < 0)
+		/* OHOS/Drive-client: use non-blocking LOCK_NB so we don't deadlock when
+		 * Windows opens a redirected drive file with FILE_SHARE_READ|WRITE
+		 * concurrently (typical for paste/overwrite). If the lock can't be
+		 * acquired we just skip it — Windows share semantics differ from
+		 * POSIX flock anyway, and the underlying filesystem still serializes
+		 * actual I/O. Real errors (e.g. EBADF) still propagate. */
+		if (flock(fileno(pFile->fp), lock | LOCK_NB) < 0)
 #endif
 		{
+			if (errno == EWOULDBLOCK || errno == EAGAIN)
+			{
+				/* contention only — proceed without bLocked */
+			}
+			else
+			{
 #ifdef __sun
-			(void)log_error("F_SETLKW", pFile);
+				(void)log_error("F_SETLK", pFile);
 #else
-			(void)log_error("flock", pFile);
+				(void)log_error("flock", pFile);
 #endif
-
-			SetLastError(map_posix_err(errno));
-			FileCloseHandle(pFile);
-			return INVALID_HANDLE_VALUE;
+				SetLastError(map_posix_err(errno));
+				FileCloseHandle(pFile);
+				return INVALID_HANDLE_VALUE;
+			}
 		}
-
-		pFile->bLocked = TRUE;
+		else
+		{
+			pFile->bLocked = TRUE;
+		}
 	}
 
 	if (fstat(fileno(pFile->fp), &st) == 0 && dwFlagsAndAttributes & FILE_ATTRIBUTE_READONLY)
