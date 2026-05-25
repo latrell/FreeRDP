@@ -100,13 +100,14 @@ BOOL freerdp_channel_send(rdpRdp* rdp, UINT16 channelId, const BYTE* data, size_
 		}
 
 		{
-			int retry = 5;
+			int retry = 0;
 			while (!freerdp_channel_send_packet(rdp, channelId, size, flags, data,
 			                                    chunkSize))
 			{
-				if (--retry < 0)
+				if (freerdp_shall_disconnect_context(rdp->context))
 					return FALSE;
-				usleep(20000); /* 20ms -> give TCP time to drain */
+				usleep(5000); /* 5ms backoff */
+				retry++;
 			}
 		}
 
