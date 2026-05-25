@@ -1248,14 +1248,30 @@ static int transport_default_write(rdpTransport* transport, wStream* s)
 				 */
 				if (!BIO_should_retry(transport->frontBio))
 				{
-					WLog_ERR_BIO(transport, "BIO_should_retry", transport->frontBio);
-					goto out_cleanup;
+					/* Underlying BIOs (buffered socket) may have SHOULD_RETRY even
+					 * when the TLS BIO doesn't propagate it. Walk the chain to avoid
+					 * false fatal errors when only the xmitBuffer is full. */
+					BOOL chainRetry = FALSE;
+					for (BIO* b = BIO_next(transport->frontBio); b; b = BIO_next(b))
+					{
+						if (BIO_should_retry(b))
+						{
+							chainRetry = TRUE;
+							break;
+						}
+					}
+					if (!chainRetry)
+					{
+						WLog_ERR_BIO(transport, "BIO_should_retry", transport->frontBio);
+						goto out_cleanup;
+					}
 				}
 
-				/* non-blocking can live with blocked IOs */
+				/* non-blocking: treat as transient, don't kill transport.
+				 * The buffered BIO will retry on the next write or read call. */
 				if (!transport->blocking)
 				{
-					WLog_ERR_BIO(transport, "BIO_write", transport->frontBio);
+					status = 0;
 					goto out_cleanup;
 				}
 

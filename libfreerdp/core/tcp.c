@@ -479,7 +479,10 @@ static int transport_bio_buffered_write(BIO* bio, const char* buf, int num)
 	 */
 	if (buf && (num > 0) && !ringbuffer_write(&ptr->xmitBuffer, (const BYTE*)buf, (size_t)num))
 	{
-		WLog_ERR(TAG, "an error occurred when writing (num: %d)", num);
+		WLog_WARN(TAG, "xmitBuffer full (%%zu bytes), requesting retry",
+		          ringbuffer_used(&ptr->xmitBuffer));
+		BIO_set_flags(bio, BIO_FLAGS_WRITE | BIO_FLAGS_SHOULD_RETRY);
+		ptr->writeBlocked = TRUE;
 		return -1;
 	}
 
