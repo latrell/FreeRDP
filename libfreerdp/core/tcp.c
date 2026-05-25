@@ -533,6 +533,20 @@ static int transport_bio_buffered_read(BIO* bio, char* buf, int size)
 	ptr->readBlocked = FALSE;
 	BIO_clear_flags(bio, BIO_FLAGS_READ);
 	ERR_clear_error();
+
+	/* Flush pending writes before reading. Without this, data queued in
+	 * the xmitBuffer ring buffer (by transport_bio_buffered_write when
+	 * TCP is full) is never sent because:
+	 *   - WaitForOutputBufferFlush=FALSE skips the flush-after-write loop
+	 *   - The event loop only checks FD_READ, not FD_WRITE
+	 *   - The server is waiting for this data before sending anything back
+	 * → protocol-level deadlock: client waits for server; server waits for client.
+	 *
+	 * BIO_CTRL_FLUSH on this BIO drains xmitBuffer via buffered_write(buf=NULL,len=0).
+	 */
+	if (ringbuffer_used(&ptr->xmitBuffer))
+		(void)BIO_flush(bio);
+
 	status = BIO_read(next_bio, buf, size);
 
 	if (status <= 0)
