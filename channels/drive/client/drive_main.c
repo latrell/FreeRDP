@@ -302,8 +302,11 @@ static UINT drive_process_irp_read(DRIVE_DEVICE* drive, IRP* irp)
 
 	if (!Stream_EnsureRemainingCapacity(irp->output, 4ull + Length))
 	{
-		WLog_ERR(TAG, "Stream_EnsureRemainingCapacity failed!");
-		return ERROR_INTERNAL_ERROR;
+		WLog_ERR(TAG, "Stream_EnsureRemainingCapacity failed for IRP_MJ_READ FileId=%" PRIu32
+		         " Length=%" PRIu32, irp->FileId, Length);
+		irp->IoStatus = STATUS_INSUFFICIENT_RESOURCES;
+		WINPR_ASSERT(irp->Discard);
+		return irp->Discard(irp);
 	}
 	else if (Length == 0)
 		Stream_Write_UINT32(irp->output, 0);
@@ -323,6 +326,10 @@ static UINT drive_process_irp_read(DRIVE_DEVICE* drive, IRP* irp)
 		}
 	}
 
+	/* [DIAG/rdpdr-read] 记录大块读取操作，辅助诊断文件复制期间传输瓶颈 */
+	if (Length >= 262144) /* 256KB */
+		WLog_DBG(TAG, "[DIAG/rdpdr-read] FileId=%" PRIu32 " Offset=%" PRIu64 " Length=%" PRIu32
+		         " IoStatus=0x%08" PRIx32, irp->FileId, Offset, Length, irp->IoStatus);
 	WINPR_ASSERT(irp->Complete);
 	return irp->Complete(irp);
 }
@@ -483,14 +490,20 @@ static UINT drive_process_irp_query_volume_information(DRIVE_DEVICE* drive, IRP*
 			const size_t length = 17ul + volumeLabelLen;
 
 			if ((length > UINT32_MAX) || (volumeLabelLen > UINT32_MAX))
-				return CHANNEL_RC_NO_BUFFER;
+			{
+				irp->IoStatus = STATUS_INSUFFICIENT_RESOURCES;
+				WINPR_ASSERT(irp->Discard);
+				return irp->Discard(irp);
+			}
 
 			Stream_Write_UINT32(output, (UINT32)length); /* Length */
 
 			if (!Stream_EnsureRemainingCapacity(output, length))
 			{
 				WLog_ERR(TAG, "Stream_EnsureRemainingCapacity failed!");
-				return CHANNEL_RC_NO_MEMORY;
+				irp->IoStatus = STATUS_INSUFFICIENT_RESOURCES;
+				WINPR_ASSERT(irp->Discard);
+				return irp->Discard(irp);
 			}
 
 			GetFileAttributesExW(drive->path, GetFileExInfoStandard, &wfad);
@@ -512,7 +525,9 @@ static UINT drive_process_irp_query_volume_information(DRIVE_DEVICE* drive, IRP*
 			if (!Stream_EnsureRemainingCapacity(output, 24))
 			{
 				WLog_ERR(TAG, "Stream_EnsureRemainingCapacity failed!");
-				return CHANNEL_RC_NO_MEMORY;
+				irp->IoStatus = STATUS_INSUFFICIENT_RESOURCES;
+				WINPR_ASSERT(irp->Discard);
+				return irp->Discard(irp);
 			}
 
 			Stream_Write_UINT64(output, lpTotalNumberOfClusters); /* TotalAllocationUnits */
@@ -530,14 +545,20 @@ static UINT drive_process_irp_query_volume_information(DRIVE_DEVICE* drive, IRP*
 			const size_t length = 12ul + diskTypeLen;
 
 			if ((length > UINT32_MAX) || (diskTypeLen > UINT32_MAX))
-				return CHANNEL_RC_NO_BUFFER;
+			{
+				irp->IoStatus = STATUS_INSUFFICIENT_RESOURCES;
+				WINPR_ASSERT(irp->Discard);
+				return irp->Discard(irp);
+			}
 
 			Stream_Write_UINT32(output, (UINT32)length); /* Length */
 
 			if (!Stream_EnsureRemainingCapacity(output, length))
 			{
 				WLog_ERR(TAG, "Stream_EnsureRemainingCapacity failed!");
-				return CHANNEL_RC_NO_MEMORY;
+				irp->IoStatus = STATUS_INSUFFICIENT_RESOURCES;
+				WINPR_ASSERT(irp->Discard);
+				return irp->Discard(irp);
 			}
 
 			Stream_Write_UINT32(output, FILE_CASE_SENSITIVE_SEARCH | FILE_CASE_PRESERVED_NAMES |
@@ -555,7 +576,9 @@ static UINT drive_process_irp_query_volume_information(DRIVE_DEVICE* drive, IRP*
 			if (!Stream_EnsureRemainingCapacity(output, 32))
 			{
 				WLog_ERR(TAG, "Stream_EnsureRemainingCapacity failed!");
-				return CHANNEL_RC_NO_MEMORY;
+				irp->IoStatus = STATUS_INSUFFICIENT_RESOURCES;
+				WINPR_ASSERT(irp->Discard);
+				return irp->Discard(irp);
 			}
 
 			Stream_Write_UINT64(output, lpTotalNumberOfClusters); /* TotalAllocationUnits */
@@ -573,7 +596,9 @@ static UINT drive_process_irp_query_volume_information(DRIVE_DEVICE* drive, IRP*
 			if (!Stream_EnsureRemainingCapacity(output, 8))
 			{
 				WLog_ERR(TAG, "Stream_EnsureRemainingCapacity failed!");
-				return CHANNEL_RC_NO_MEMORY;
+				irp->IoStatus = STATUS_INSUFFICIENT_RESOURCES;
+				WINPR_ASSERT(irp->Discard);
+				return irp->Discard(irp);
 			}
 
 			Stream_Write_UINT32(output, FILE_DEVICE_DISK); /* DeviceType */
