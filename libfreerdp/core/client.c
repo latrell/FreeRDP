@@ -688,41 +688,34 @@ fail:
 /**
  * called only from main thread
  *
- * Throttle: limit bytes sent per call to prevent transport_write from blocking
- * the RDP event loop on a full TCP buffer during bulk data transfers (e.g.,
- * file copy via redirected drives). Each IRP_MJ_READ IOCOMPLETION carries up
- * to VCChunkSize (typ. 64KB) of file data; processing too many in one sync
- * cycle fills the TCP send buffer and the blocking BIO_write retry loop
- * starves autodetect / GFX frame processing.
+ * Throttle: limit time spent in this function to prevent transport_write from
+ * monopolizing the RDP event loop when the TCP send buffer is full (e.g., during
+ * bulk file copy via redirected drives). BIO_write enters a blocking retry loop
+ * (BIO_wait_write 100ms) when the buffer is full; processing too many channel
+ * messages in one call starves autodetect / GFX frame processing.
+ *
+ * A byte limit alone is insufficient: even a single large channel PDU can cause
+ * transport_write to block for hundreds of ms. A wall-clock budget per call
+ * ensures the event loop always yields for transport I/O and keepalive.
  */
-#ifndef RDP_CHANNELS_MAX_SYNC_BYTES
-#define RDP_CHANNELS_MAX_SYNC_BYTES (512u * 1024u) /* 512KB per cycle */
+#ifndef RDP_CHANNELS_MAX_SYNC_MS
+#define RDP_CHANNELS_MAX_SYNC_MS 200 /* 200ms max per call */
 #endif
 
 static BOOL freerdp_channels_process_sync(rdpChannels* channels, freerdp* instance)
 {
 	BOOL status = TRUE;
 	wMessage message = { 0 };
-	size_t bytesSent = 0;
+	const UINT64 deadline = GetTickCount64() + RDP_CHANNELS_MAX_SYNC_MS;
 
 	WINPR_ASSERT(channels);
 
 	while (MessageQueue_Peek(channels->queue, &message, TRUE))
 	{
-		/* Snapshot DataLength before process_message frees the event */
-		size_t msgLen = 0;
-		if (message.id == 0)
-		{
-			const CHANNEL_OPEN_EVENT* item = (const CHANNEL_OPEN_EVENT*)message.wParam;
-			if (item)
-				msgLen = item->DataLength;
-		}
-
 		if (!freerdp_channels_process_message(instance, &message))
 			status = FALSE;
 
-		bytesSent += msgLen;
-		if (bytesSent >= RDP_CHANNELS_MAX_SYNC_BYTES)
+		if (GetTickCount64() >= deadline)
 			break;
 	}
 
