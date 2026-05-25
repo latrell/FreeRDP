@@ -869,9 +869,9 @@ static DWORD WINAPI drive_thread_func(LPVOID arg)
 		 * loop to drain the channel queue and service transport I/O. */
 		if (rdLen > 0)
 		{
-			unsigned delayUs = rdLen / 4096; /* ~4 MB/s pacing */
-			if (delayUs > 200000)
-				delayUs = 200000; /* cap at 200ms */
+			unsigned delayUs = rdLen / 2048; /* ~2 MB/s pacing — stay below autodetect ~26 Mbps */
+			if (delayUs > 500000)
+				delayUs = 500000; /* cap at 500ms */
 			usleep(delayUs);
 		}
 	}

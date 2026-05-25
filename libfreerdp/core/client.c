@@ -699,7 +699,7 @@ fail:
  * ensures the event loop always yields for transport I/O and keepalive.
  */
 #ifndef RDP_CHANNELS_MAX_SYNC_MS
-#define RDP_CHANNELS_MAX_SYNC_MS 100 /* 100ms max per call */
+#define RDP_CHANNELS_MAX_SYNC_MS 50 /* 50ms max per call */
 #endif
 
 static BOOL freerdp_channels_process_sync(rdpChannels* channels, freerdp* instance)
