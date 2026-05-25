@@ -288,6 +288,14 @@ static UINT drive_process_irp_read(DRIVE_DEVICE* drive, IRP* irp)
 
 	Stream_Read_UINT32(irp->input, Length);
 	Stream_Read_UINT64(irp->input, Offset);
+
+	/* Cap read chunk to 64KB. The problem server issues 256KB IRP_MJ_READ
+	 * chunks which overflow the TCP send buffer and deadlock the transport.
+	 * Returning less than requested is valid per MS-RDPEFS — the server
+	 * will issue another IRP_MJ_READ for the remaining data. */
+	if (Length > 65536)
+		Length = 65536;
+
 	file = drive_get_file_by_id(drive, irp->FileId);
 
 	if (!file)
