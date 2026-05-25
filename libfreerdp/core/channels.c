@@ -99,8 +99,16 @@ BOOL freerdp_channel_send(rdpRdp* rdp, UINT16 channelId, const BYTE* data, size_
 			flags |= CHANNEL_FLAG_SHOW_PROTOCOL;
 		}
 
-		if (!freerdp_channel_send_packet(rdp, channelId, size, flags, data, chunkSize))
-			return FALSE;
+		{
+			int retry = 5;
+			while (!freerdp_channel_send_packet(rdp, channelId, size, flags, data,
+			                                    chunkSize))
+			{
+				if (--retry < 0)
+					return FALSE;
+				usleep(20000); /* 20ms -> give TCP time to drain */
+			}
+		}
 
 		data += chunkSize;
 		left -= chunkSize;
