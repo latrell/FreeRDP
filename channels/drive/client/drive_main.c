@@ -327,10 +327,17 @@ static UINT drive_process_irp_read(DRIVE_DEVICE* drive, IRP* irp)
 		}
 	}
 
-	/* [DIAG/rdpdr-read] 记录大块读取操作，辅助诊断文件复制期间传输瓶颈 */
-	if (Length >= 65536) /* 64KB - lowered from 256KB to catch problem-server chunk sizes */
-		WLog_DBG(TAG, "[DIAG/rdpdr-read] FileId=%" PRIu32 " Offset=%" PRIu64 " Length=%" PRIu32
-		         " IoStatus=0x%08" PRIx32, irp->FileId, Offset, Length, irp->IoStatus);
+		/* [DIAG/rdpdr-read] WARN level to bypass wLog bridge filter (level=WARN).
+		 * Log every IRP_MJ_READ to reveal server read-chunk strategy.
+		 * Rate-limit: emit every 64th read to avoid flooding the log. */
+		{
+			static unsigned diagRdpdrReadSeq = 0;
+			const unsigned seq = ++diagRdpdrReadSeq;
+			if ((seq & 63u) == 0) /* every 64th */
+				WLog_WARN(TAG, "[DIAG/rdpdr-read] #%u FileId=%" PRIu32 " Offset=%" PRIu64
+				          " Length=%" PRIu32 " IoStatus=0x%08" PRIx32,
+				          seq, irp->FileId, Offset, Length, irp->IoStatus);
+		}
 	WINPR_ASSERT(irp->Complete);
 	return irp->Complete(irp);
 }
