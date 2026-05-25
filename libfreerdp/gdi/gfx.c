@@ -630,6 +630,13 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 
 	if (rc < 0)
 	{
+		/* rc == -1: single frame skip (decoder auto-recovered, next frame OK)
+		 * rc == -2: permanent failure (consecutive errors exceeded threshold) */
+		if (rc == -2)
+		{
+			WLog_ERR(TAG, "avc420_decompress: permanent failure, propagating error");
+			return ERROR_INTERNAL_ERROR;
+		}
 		WLog_WARN(TAG, "avc420_decompress failure: %" PRId32 ", ignoring update.", rc);
 		return CHANNEL_RC_OK;
 	}
@@ -728,7 +735,14 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 
 	if (rc < 0)
 	{
-		WLog_WARN(TAG, "avc444_decompress failure: %" PRIu32 ", ignoring update.", status);
+		/* rc == -1: single frame skip (decoder auto-recovered, next frame OK)
+		 * rc == -2: permanent failure (consecutive errors exceeded threshold) */
+		if (rc == -2)
+		{
+			WLog_ERR(TAG, "avc444_decompress: permanent failure, propagating error");
+			return ERROR_INTERNAL_ERROR;
+		}
+		WLog_WARN(TAG, "avc444_decompress failure: %" PRId32 ", ignoring update.", rc);
 		return CHANNEL_RC_OK;
 	}
 

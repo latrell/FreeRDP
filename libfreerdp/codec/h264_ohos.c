@@ -94,6 +94,14 @@ typedef struct
 
 	bool codecError;
 
+	/* Auto-recovery: consecutive decode errors counter */
+	int consecutiveErrors;
+
+	/* Saved format parameters for decoder reset/recovery */
+	int32_t savedWidth;
+	int32_t savedHeight;
+	bool savedSurfaceMode;
+
 	/* NV12→I420 conversion buffer */
 	uint8_t* chromaConvBuf;
 	size_t chromaConvBufSize;
@@ -407,6 +415,10 @@ static bool start_buffer_mode(H264_CONTEXT* h264, H264_CONTEXT_OHOS* sys, int32_
 	sys->outputHeight = h;
 	sys->outputStride = 0;
 	sys->codecError = false;
+	sys->consecutiveErrors = 0;
+	sys->savedWidth = w;
+	sys->savedHeight = h;
+	sys->savedSurfaceMode = false;
 
 	WLog_Print(h264->log, WLOG_INFO,
 	           "OHOS decoder: buffer mode started %dx%d", w, h);
@@ -584,11 +596,15 @@ static bool start_surface_mode(H264_CONTEXT* h264, H264_CONTEXT_OHOS* sys, int32
 	sys->surfaceMode = true;
 	sys->decoderStarted = true;
 	sys->codecError = false;
+	sys->consecutiveErrors = 0;
 	sys->width = w;
 	sys->height = h;
 	sys->outputWidth = w;
 	sys->outputHeight = h;
 	sys->outputStride = 0;
+	sys->savedWidth = w;
+	sys->savedHeight = h;
+	sys->savedSurfaceMode = true;
 	surface_decoder_activate_oes(h264->yuvReadyContext, (void*)h264);
 
 	WLog_Print(h264->log, WLOG_INFO,
@@ -615,6 +631,132 @@ static int ohos_compress(H264_CONTEXT* h264, const BYTE** pSrcYuv, const UINT32*
 	return -1;
 }
 
+/**
+ * Attempt to reset and recover the OHOS decoder after an error.
+ * Sequence: Stop → Reset → Re-register callbacks → Configure → (SetSurface) → Prepare → Start.
+ * Returns TRUE if the decoder was successfully recovered and is ready for new frames.
+ */
+static BOOL ohos_reset_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS* sys)
+{
+	OH_AVErrCode err;
+
+	if (!sys->decoderStarted || sys->savedWidth <= 0 || sys->savedHeight <= 0)
+		return FALSE;
+
+	WLog_Print(h264->log, WLOG_WARN,
+	           "OHOS decoder: attempting reset recovery (%dx%d, surface=%d)",
+	           sys->savedWidth, sys->savedHeight, (int)sys->savedSurfaceMode);
+
+	/* Step 1: Stop and Reset to Initialized state */
+	OH_VideoDecoder_Stop(sys->decoder);
+	err = OH_VideoDecoder_Reset(sys->decoder);
+	if (err != AV_ERR_OK)
+	{
+		WLog_Print(h264->log, WLOG_ERROR,
+		           "OHOS decoder: Reset failed during recovery: %d", err);
+		return FALSE;
+	}
+
+	clear_sync_state(sys);
+
+	/* Step 2: Re-register callbacks */
+	{
+		OH_AVCodecCallback cb;
+		cb.onError = ohos_on_error;
+	#ifdef WITH_OHOS_HWCODEC_SURFACE
+		if (sys->savedSurfaceMode)
+		{
+			cb.onStreamChanged = surface_on_stream_changed;
+			cb.onNeedInputBuffer = ohos_on_need_input;
+			cb.onNewOutputBuffer = surface_on_output;
+		}
+		else
+	#endif
+		{
+			cb.onStreamChanged = ohos_on_stream_changed;
+			cb.onNeedInputBuffer = ohos_on_need_input;
+			cb.onNewOutputBuffer = ohos_on_output;
+		}
+
+		err = OH_VideoDecoder_RegisterCallback(sys->decoder, cb, (void*)h264);
+		if (err != AV_ERR_OK)
+		{
+			WLog_Print(h264->log, WLOG_ERROR,
+			           "OHOS decoder: RegisterCallback failed during recovery: %d", err);
+			return FALSE;
+		}
+	}
+
+	/* Step 3: Configure with saved format parameters */
+	{
+		OH_AVFormat* fmt = OH_AVFormat_Create();
+		OH_AVFormat_SetIntValue(fmt, OH_MD_KEY_WIDTH, sys->savedWidth);
+		OH_AVFormat_SetIntValue(fmt, OH_MD_KEY_HEIGHT, sys->savedHeight);
+		OH_AVFormat_SetIntValue(fmt, OH_MD_KEY_PIXEL_FORMAT, AV_PIXEL_FORMAT_NV12);
+
+		err = OH_VideoDecoder_Configure(sys->decoder, fmt);
+		OH_AVFormat_Destroy(fmt);
+		if (err != AV_ERR_OK)
+		{
+			WLog_Print(h264->log, WLOG_ERROR,
+			           "OHOS decoder: Configure failed during recovery: %d", err);
+			return FALSE;
+		}
+	}
+
+	/* Step 4: SetSurface (surface mode only) */
+#ifdef WITH_OHOS_HWCODEC_SURFACE
+	if (sys->savedSurfaceMode && sys->surfaceWindow)
+	{
+		err = OH_VideoDecoder_SetSurface(sys->decoder, sys->surfaceWindow);
+		if (err != AV_ERR_OK)
+		{
+			WLog_Print(h264->log, WLOG_ERROR,
+			           "OHOS decoder: SetSurface failed during recovery: %d", err);
+			return FALSE;
+		}
+	}
+#endif
+
+	/* Step 5: Prepare and Start */
+	err = OH_VideoDecoder_Prepare(sys->decoder);
+	if (err != AV_ERR_OK)
+	{
+		WLog_Print(h264->log, WLOG_ERROR,
+		           "OHOS decoder: Prepare failed during recovery: %d", err);
+		return FALSE;
+	}
+
+	err = OH_VideoDecoder_Start(sys->decoder);
+	if (err != AV_ERR_OK)
+	{
+		WLog_Print(h264->log, WLOG_ERROR,
+		           "OHOS decoder: Start failed during recovery: %d", err);
+		return FALSE;
+	}
+
+	/* Step 6: Restore decoder state */
+	sys->codecError = false;
+	sys->consecutiveErrors = 0;
+	sys->decoderStarted = true;
+	sys->width = sys->savedWidth;
+	sys->height = sys->savedHeight;
+	sys->outputWidth = sys->savedWidth;
+	sys->outputHeight = sys->savedHeight;
+	sys->outputStride = 0;
+	sys->totalDecompressCalls = 0;
+	sys->consecutiveTimeouts = 0;
+	sys->hasProducedOutput = false;
+#ifdef WITH_OHOS_HWCODEC_SURFACE
+	sys->hasSpsReceived = false;
+#endif
+
+	WLog_Print(h264->log, WLOG_INFO,
+	           "OHOS decoder: reset recovery successful %dx%d (surface=%d)",
+	           sys->savedWidth, sys->savedHeight, (int)sys->savedSurfaceMode);
+	return TRUE;
+}
+
 static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize)
 {
 	H264_CONTEXT_OHOS* sys;
@@ -629,9 +771,41 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 
 	if (sys->codecError)
 	{
-		WLog_Print(h264->log, WLOG_ERROR, "OHOS decoder in error state");
+		sys->consecutiveErrors++;
+
+		/* Threshold: give up after too many consecutive failures */
+		if (sys->consecutiveErrors > 5)
+		{
+			WLog_Print(h264->log, WLOG_ERROR,
+			           "OHOS decoder: %d consecutive errors, permanent failure",
+			           sys->consecutiveErrors);
+			return -2;
+		}
+
+		/* Attempt auto-recovery: reset decoder, skip current frame,
+		 * next frame will use the fresh decoder. */
+		WLog_Print(h264->log, WLOG_WARN,
+		           "OHOS decoder error (attempt %d), attempting reset recovery...",
+		           sys->consecutiveErrors);
+
+		if (ohos_reset_decoder(h264, sys))
+		{
+			/* Reset succeeded — skip this frame, next frame will decode normally.
+			 * Request IDR refresh to ensure the decoder gets a key frame. */
+			if (h264->yuvReadyContext)
+				surface_decoder_request_refresh(h264->yuvReadyContext);
+			return -1;
+		}
+
+		/* Reset failed — will retry on next call (up to threshold) */
+		WLog_Print(h264->log, WLOG_ERROR,
+		           "OHOS decoder: reset recovery failed (attempt %d/%d)",
+		           sys->consecutiveErrors, 5);
 		return -1;
 	}
+
+	/* Reset counter on successful path — decoder is healthy */
+	sys->consecutiveErrors = 0;
 
 	/* Determine resolution for decoder startup/resize */
 	int32_t w = ((int32_t)h264->width > 0) ? (int32_t)h264->width : sys->width;
@@ -808,6 +982,7 @@ surface_path:
 			sys->outputHeight = newH;
 			sys->outputStride = 0;
 			sys->codecError = false;
+			sys->consecutiveErrors = 0;
 
 			/* Re-activate OES mode for new NativeImage */
 			surface_decoder_activate_oes(h264->yuvReadyContext, (void*)h264);
@@ -963,6 +1138,7 @@ surface_path:
 		sys->outputHeight = newH;
 		sys->outputStride = 0;
 		sys->codecError = false;
+		sys->consecutiveErrors = 0;
 		sys->totalDecompressCalls = 0;
 		sys->consecutiveTimeouts = 0;
 		sys->hasProducedOutput = false;
@@ -1211,6 +1387,10 @@ static BOOL ohos_init(H264_CONTEXT* h264)
 	sys->height = OHOS_MINIMUM_HEIGHT;
 	sys->outputWidth = sys->width;
 	sys->outputHeight = sys->height;
+	sys->savedWidth = 0;
+	sys->savedHeight = 0;
+	sys->savedSurfaceMode = false;
+	sys->consecutiveErrors = 0;
 
 	sys->decoderStarted = false;
 #ifdef WITH_OHOS_HWCODEC_SURFACE

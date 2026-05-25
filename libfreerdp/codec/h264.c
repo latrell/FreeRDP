@@ -535,7 +535,7 @@ static int avc444_process_rects(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32
 	int status = h264->subsystem->Decompress(h264, pSrcData, SrcSize);
 
 	if (status < 0)
-		return -1;
+		return status;  /* propagate -1 (skip frame) or -2 (permanent failure) */
 
 	if (status == 0)
 	{
@@ -606,7 +606,7 @@ INT32 avc444_decompress(H264_CONTEXT* h264, BYTE op, const RECTANGLE_16* regionR
 			                               nDstStep, nDstWidth, nDstHeight, regionRects,
 			                               numRegionRects, AVC444_LUMA);
 			if (rc1 < 0)
-				status = -1;
+				status = rc1;  /* propagate -1 or -2 */
 			else if (rc1 == 0)
 				status = 0;  /* Surface: LUMA on NativeImage, skip CHROMA */
 			else
@@ -614,7 +614,7 @@ INT32 avc444_decompress(H264_CONTEXT* h264, BYTE op, const RECTANGLE_16* regionR
 				int rc1c = avc444_process_rects(h264, pAuxSrcData, AuxSrcSize, pDstData,
 				                                DstFormat, nDstStep, nDstWidth, nDstHeight,
 				                                auxRegionRects, numAuxRegionRect, chroma);
-				status = (rc1c < 0) ? -1 : 0;
+				status = (rc1c < 0) ? rc1c : 0;
 			}
 			break;
 		}
@@ -627,7 +627,7 @@ INT32 avc444_decompress(H264_CONTEXT* h264, BYTE op, const RECTANGLE_16* regionR
 				int rc2 = avc444_process_rects(h264, pSrcData, SrcSize, pDstData, DstFormat,
 				                               nDstStep, nDstWidth, nDstHeight, regionRects,
 				                               numRegionRects, chroma);
-				status = (rc2 < 0) ? -1 : 0;
+				status = (rc2 < 0) ? rc2 : 0;
 			}
 			break;
 
@@ -636,7 +636,7 @@ INT32 avc444_decompress(H264_CONTEXT* h264, BYTE op, const RECTANGLE_16* regionR
 			int rc3 = avc444_process_rects(h264, pSrcData, SrcSize, pDstData, DstFormat,
 			                               nDstStep, nDstWidth, nDstHeight, regionRects,
 			                               numRegionRects, AVC444_LUMA);
-			status = (rc3 < 0) ? -1 : 0;
+			status = (rc3 < 0) ? rc3 : 0;
 			break;
 		}
 
