@@ -46,6 +46,14 @@
 static const int OHOS_MINIMUM_WIDTH = 320;
 static const int OHOS_MINIMUM_HEIGHT = 240;
 
+/* Frame-stall watchdog bridge — defined in libentry (gdi_bridge.cpp).
+ * Available in both surface and buffer modes. errorKind: 1=CODEC 2=TIMEOUT 3=PERMANENT 4=OK. */
+extern void surface_decoder_report_decode_error(void* session, void* surfaceKey,
+                                                int errorKind, int consecutiveErrors,
+                                                int consecutiveTimeouts);
+extern int surface_decoder_get_recovery_version(void* session);
+extern int surface_decoder_take_recovery_flags(void* session);
+
 #ifdef WITH_OHOS_HWCODEC_SURFACE
 /* External bridge functions — defined in libentry (gdi_bridge.cpp).
  * Resolved at final link time when FreeRDP static lib is linked into libentry.so. */
@@ -120,6 +128,8 @@ typedef struct
 	int totalDecompressCalls; /* Total decompress calls (for first-frame tolerance) */
 	int consecutiveTimeouts;  /* Consecutive output timeout count */
 	bool hasProducedOutput;   /* True once decoder has produced at least one frame */
+
+	int appliedRecoveryVersion; /* Last watchdog recovery-request version applied (per H264_CONTEXT) */
 } H264_CONTEXT_OHOS;
 
 /* ======================================================================
@@ -769,9 +779,45 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 	sys = (H264_CONTEXT_OHOS*)h264->pSystemData;
 	WINPR_ASSERT(sys);
 
+	/* Frame-stall watchdog: apply any pending recovery request (set from the
+	 * performance-monitor thread). Version bump signals a new request; we apply
+	 * it once per H264_CONTEXT. forceReset reuses the existing codecError→reset
+	 * path; downgrade switches this decoder back to buffer mode (BGRA/YUV). */
+	if (h264->yuvReadyContext)
+	{
+		int recVer = surface_decoder_get_recovery_version(h264->yuvReadyContext);
+		if (recVer != sys->appliedRecoveryVersion)
+		{
+			sys->appliedRecoveryVersion = recVer;
+			int recFlags = surface_decoder_take_recovery_flags(h264->yuvReadyContext);
+#ifdef WITH_OHOS_HWCODEC_SURFACE
+			if ((recFlags & 0x2) && sys->surfaceMode)
+			{
+				/* Downgrade to buffer mode: deactivate OES (clears surfaceMode in
+				 * gdi_bridge + restores EndPaint BGRA upload), forbid auto re-upgrade,
+				 * and rebuild via buffer callbacks on the upcoming reset. */
+				sys->surfaceMode = false;
+				sys->savedSurfaceMode = false;
+				sys->surfaceRetryCount = 30;
+				surface_decoder_deactivate_oes(h264->yuvReadyContext, (void*)h264);
+				WLog_Print(h264->log, WLOG_WARN,
+				           "OHOS decoder: watchdog downgrade to buffer mode (version %d)", recVer);
+			}
+#endif
+			if (recFlags & 0x1)
+				sys->codecError = true; /* trigger existing reset recovery path below */
+		}
+	}
+
 	if (sys->codecError)
 	{
 		sys->consecutiveErrors++;
+
+		/* Report error state to the watchdog (event thread) */
+		if (h264->yuvReadyContext)
+			surface_decoder_report_decode_error(h264->yuvReadyContext, (void*)h264,
+			                                    1 /* CODEC */, sys->consecutiveErrors,
+			                                    sys->consecutiveTimeouts);
 
 		/* Threshold: give up after too many consecutive failures */
 		if (sys->consecutiveErrors > 5)
@@ -779,6 +825,10 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 			WLog_Print(h264->log, WLOG_ERROR,
 			           "OHOS decoder: %d consecutive errors, permanent failure",
 			           sys->consecutiveErrors);
+			if (h264->yuvReadyContext)
+				surface_decoder_report_decode_error(h264->yuvReadyContext, (void*)h264,
+				                                    3 /* PERMANENT */, sys->consecutiveErrors,
+				                                    sys->consecutiveTimeouts);
 			return -2;
 		}
 
@@ -1017,6 +1067,10 @@ surface_path:
 		{
 			WLog_Print(h264->log, WLOG_ERROR,
 			           "OHOS Surface decoder: timeout waiting for input");
+			if (h264->yuvReadyContext)
+				surface_decoder_report_decode_error(h264->yuvReadyContext, (void*)h264,
+				                                    2 /* TIMEOUT */, sys->consecutiveErrors,
+				                                    sys->consecutiveTimeouts);
 			return -1;
 		}
 		if (!sys->inputBuffer)
@@ -1152,6 +1206,10 @@ surface_path:
 	if (!wait_input_ready(sys, 1000))
 	{
 		WLog_Print(h264->log, WLOG_ERROR, "OHOS decoder: timeout waiting for input buffer");
+		if (h264->yuvReadyContext)
+			surface_decoder_report_decode_error(h264->yuvReadyContext, (void*)h264,
+			                                    2 /* TIMEOUT */, sys->consecutiveErrors,
+			                                    sys->consecutiveTimeouts);
 		return -1;
 	}
 
@@ -1223,6 +1281,10 @@ surface_path:
 			WLog_Print(h264->log, WLOG_WARN,
 			           "OHOS decoder: timeout waiting for output (attempt %d, timeout %dms)",
 			           sys->consecutiveTimeouts, timeoutMs);
+			if (h264->yuvReadyContext)
+				surface_decoder_report_decode_error(h264->yuvReadyContext, (void*)h264,
+				                                    2 /* TIMEOUT */, sys->consecutiveErrors,
+				                                    sys->consecutiveTimeouts);
 			return -1;
 		}
 		sys->consecutiveTimeouts = 0;
@@ -1295,6 +1357,12 @@ surface_path:
 	OH_VideoDecoder_FreeOutputBuffer(sys->decoder, sys->outputIndex);
 	sys->outputIndex = -1;
 	sys->outputBuffer = NULL;
+
+	/* Buffer-mode frame produced successfully — signal the watchdog to reset its
+	 * stall state machine. (Surface mode relies on OES frame consumption instead.) */
+	if (h264->yuvReadyContext)
+		surface_decoder_report_decode_error(h264->yuvReadyContext, (void*)h264,
+		                                    4 /* OK */, 0, 0);
 
 	return 1;
 }
