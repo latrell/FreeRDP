@@ -597,8 +597,13 @@ static long transport_bio_buffered_ctrl(BIO* bio, int cmd, long arg1, void* arg2
 			if (!ringbuffer_used(&ptr->xmitBuffer))
 				status = 1;
 			else
-				status = (transport_bio_buffered_write(bio, NULL, 0) >= 0) ? 1 : -1;
-
+			{
+				const int wrc = transport_bio_buffered_write(bio, NULL, 0);
+				/* >0: flushed some data; 0: nothing flushed (TCP full);
+				 * <0: error. Return 0 (not 1) for the partial/nothing case
+				 * so callers can distinguish "all clear" from "still blocked". */
+				status = (wrc > 0) ? 1 : ((wrc == 0) ? 0 : -1);
+			}
 			break;
 
 		case BIO_CTRL_WPENDING:

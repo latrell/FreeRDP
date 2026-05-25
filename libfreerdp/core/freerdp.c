@@ -442,9 +442,20 @@ static BOOL freerdp_prevent_session_lock(rdpContext* context)
 	return TRUE;
 }
 
+int freerdp_drain_output_buffer(rdpContext* context)
+{
+	if (!context || !context->rdp || !context->rdp->transport)
+		return CHANNEL_RC_NULL_DATA;
+	return transport_drain_output_buffer(context->rdp->transport);
+}
+
 BOOL freerdp_check_event_handles(rdpContext* context)
 {
 	WINPR_ASSERT(context);
+
+	/* Drain xmitBuffer before reading, breaking the deadlock where
+	 * the server waits for our data while we wait for the server's. */
+	(void)freerdp_drain_output_buffer(context);
 
 	BOOL status = freerdp_check_fds(context->instance);
 

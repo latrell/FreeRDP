@@ -669,6 +669,7 @@ owned by rdpRdp */
 	FREERDP_API BOOL freerdp_check_fds(freerdp* instance);
 
 	FREERDP_API DWORD freerdp_get_event_handles(rdpContext* context, HANDLE* events, DWORD count);
+	FREERDP_API int freerdp_drain_output_buffer(rdpContext* context);
 	FREERDP_API BOOL freerdp_check_event_handles(rdpContext* context);
 
 	FREERDP_API wMessageQueue* freerdp_get_message_queue(freerdp* instance, DWORD id);
