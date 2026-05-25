@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <winpr/crt.h>
 #include <winpr/assert.h>
@@ -844,8 +845,18 @@ static DWORD WINAPI drive_thread_func(LPVOID arg)
 			break;
 
 		IRP* irp = (IRP*)message.wParam;
+		/* Snapshot MajorFunction before drive_poll_run frees the IRP */
+		const UINT32 mj = irp ? irp->MajorFunction : 0;
 		if (!drive_poll_run(drive, irp))
 			break;
+
+		/* Rate-limit bulk data IRPs to prevent flooding the RDP event loop's
+		 * channel write path (transport_write) which can block on a full TCP
+		 * buffer. Without this, large file copies (paste from redirected drive
+		 * to remote local disk) overflow the TCP send window and the blocking
+		 * BIO_write retry loop starves autodetect / GFX frame processing. */
+		if (mj == IRP_MJ_READ || mj == IRP_MJ_WRITE)
+			usleep(5000); /* 5ms → max ~200 IRPs/s ≈ 12.5 MB/s per 64KB chunk */
 	}
 
 fail:
