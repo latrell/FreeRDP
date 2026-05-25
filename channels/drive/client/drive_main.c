@@ -328,7 +328,7 @@ static UINT drive_process_irp_read(DRIVE_DEVICE* drive, IRP* irp)
 	}
 
 	/* [DIAG/rdpdr-read] 记录大块读取操作，辅助诊断文件复制期间传输瓶颈 */
-	if (Length >= 262144) /* 256KB */
+	if (Length >= 65536) /* 64KB - lowered from 256KB to catch problem-server chunk sizes */
 		WLog_DBG(TAG, "[DIAG/rdpdr-read] FileId=%" PRIu32 " Offset=%" PRIu64 " Length=%" PRIu32
 		         " IoStatus=0x%08" PRIx32, irp->FileId, Offset, Length, irp->IoStatus);
 	WINPR_ASSERT(irp->Complete);
