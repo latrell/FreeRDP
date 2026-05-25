@@ -687,18 +687,43 @@ fail:
 
 /**
  * called only from main thread
+ *
+ * Throttle: limit bytes sent per call to prevent transport_write from blocking
+ * the RDP event loop on a full TCP buffer during bulk data transfers (e.g.,
+ * file copy via redirected drives). Each IRP_MJ_READ IOCOMPLETION carries up
+ * to VCChunkSize (typ. 64KB) of file data; processing too many in one sync
+ * cycle fills the TCP send buffer and the blocking BIO_write retry loop
+ * starves autodetect / GFX frame processing.
  */
+#ifndef RDP_CHANNELS_MAX_SYNC_BYTES
+#define RDP_CHANNELS_MAX_SYNC_BYTES (512u * 1024u) /* 512KB per cycle */
+#endif
+
 static BOOL freerdp_channels_process_sync(rdpChannels* channels, freerdp* instance)
 {
 	BOOL status = TRUE;
 	wMessage message = { 0 };
+	size_t bytesSent = 0;
 
 	WINPR_ASSERT(channels);
 
 	while (MessageQueue_Peek(channels->queue, &message, TRUE))
 	{
+		/* Snapshot DataLength before process_message frees the event */
+		size_t msgLen = 0;
+		if (message.id == 0)
+		{
+			const CHANNEL_OPEN_EVENT* item = (const CHANNEL_OPEN_EVENT*)message.wParam;
+			if (item)
+				msgLen = item->DataLength;
+		}
+
 		if (!freerdp_channels_process_message(instance, &message))
 			status = FALSE;
+
+		bytesSent += msgLen;
+		if (bytesSent >= RDP_CHANNELS_MAX_SYNC_BYTES)
+			break;
 	}
 
 	return status;
