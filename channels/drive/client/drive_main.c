@@ -852,18 +852,28 @@ static DWORD WINAPI drive_thread_func(LPVOID arg)
 			break;
 
 		IRP* irp = (IRP*)message.wParam;
-		/* Snapshot MajorFunction before drive_poll_run frees the IRP */
+		/* Snapshot before drive_poll_run frees the IRP */
 		const UINT32 mj = irp ? irp->MajorFunction : 0;
+		UINT32 rdLen = 0;
+		if (irp && (mj == IRP_MJ_READ || mj == IRP_MJ_WRITE) &&
+		    irp->input && Stream_GetRemainingLength(irp->input) >= 4)
+			Stream_Peek_UINT32(irp->input, rdLen); /* first field is Length */
+
 		if (!drive_poll_run(drive, irp))
 			break;
 
-		/* Rate-limit bulk data IRPs to prevent flooding the RDP event loop's
-		 * channel write path (transport_write) which can block on a full TCP
-		 * buffer. Without this, large file copies (paste from redirected drive
-		 * to remote local disk) overflow the TCP send window and the blocking
-		 * BIO_write retry loop starves autodetect / GFX frame processing. */
-		if (mj == IRP_MJ_READ || mj == IRP_MJ_WRITE)
-			usleep(5000); /* 5ms → max ~200 IRPs/s ≈ 12.5 MB/s per 64KB chunk */
+		/* Rate-limit bulk data IRPs proportional to transfer size.
+		 * The problem server issues 256KB chunks (4× normal 64KB);
+		 * a fixed delay can't keep up. Target ~4 MB/s effective rate
+		 * so a 256KB response yields ~64ms headroom for the RDP event
+		 * loop to drain the channel queue and service transport I/O. */
+		if (rdLen > 0)
+		{
+			unsigned delayUs = rdLen / 4096; /* ~4 MB/s pacing */
+			if (delayUs > 200000)
+				delayUs = 200000; /* cap at 200ms */
+			usleep(delayUs);
+		}
 	}
 
 fail:
