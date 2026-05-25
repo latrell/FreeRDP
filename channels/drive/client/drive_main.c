@@ -333,7 +333,7 @@ static UINT drive_process_irp_read(DRIVE_DEVICE* drive, IRP* irp)
 		{
 			static unsigned diagRdpdrReadSeq = 0;
 			const unsigned seq = ++diagRdpdrReadSeq;
-			if ((seq & 63u) == 0) /* every 64th */
+			if (seq <= 3 || (seq & 63u) == 0) /* first 3 + every 64th */
 				WLog_WARN(TAG, "[DIAG/rdpdr-read] #%u FileId=%" PRIu32 " Offset=%" PRIu64
 				          " Length=%" PRIu32 " IoStatus=0x%08" PRIx32,
 				          seq, irp->FileId, Offset, Length, irp->IoStatus);
