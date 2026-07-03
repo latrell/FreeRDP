@@ -37,7 +37,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <pthread.h>
+#include <time.h>
 
 #include "h264.h"
 
@@ -100,10 +102,15 @@ typedef struct
 	bool outputEos;
 	bool formatChanged;
 
-	bool codecError;
+	/* Written by the codec callback thread (ohos_on_error) and read/written by
+	 * the RDP event thread without a common lock — must be atomic. Plain
+	 * load/store suffices (no ordering requirements beyond visibility). */
+	atomic_bool codecError;
 
-	/* Auto-recovery: consecutive decode errors counter */
-	int consecutiveErrors;
+	/* Auto-recovery: consecutive decode errors counter. Atomic because in
+	 * surface mode it is cleared from the codec output callback thread
+	 * (surface_on_output) while the event thread increments/reads it. */
+	atomic_int consecutiveErrors;
 
 	/* Saved format parameters for decoder reset/recovery */
 	int32_t savedWidth;
@@ -130,6 +137,13 @@ typedef struct
 	bool hasProducedOutput;   /* True once decoder has produced at least one frame */
 
 	int appliedRecoveryVersion; /* Last watchdog recovery-request version applied (per H264_CONTEXT) */
+	bool recoveryVersionSeeded; /* appliedRecoveryVersion has been synced with the bridge at least
+	                             * once for this context — a freshly created H264_CONTEXT must adopt
+	                             * the current version WITHOUT applying stale flags left over from
+	                             * recoveries that predate it (they target a decoder that no longer
+	                             * exists). */
+	uint64_t lastRefreshRequestMs; /* Monotonic ms of last recovery-triggered IDR refresh request
+	                                * (throttle to avoid full-screen IDR refresh storms) */
 } H264_CONTEXT_OHOS;
 
 /* ======================================================================
@@ -333,6 +347,38 @@ static void clear_sync_state(H264_CONTEXT_OHOS* sys)
 	pthread_mutex_unlock(&sys->outputMutex);
 }
 
+/* Monotonic milliseconds — for refresh-request throttling */
+static uint64_t ohos_now_ms(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_sec * 1000ull + (uint64_t)(ts.tv_nsec / 1000000L);
+}
+
+/**
+ * Request a full-screen IDR refresh, throttled to at most once per 500ms.
+ * Used only by the error-recovery path: if the hardware keeps failing every
+ * frame while Reset keeps succeeding, an unthrottled refresh per attempt
+ * would flood the server with full-frame re-encode requests (bandwidth storm).
+ * One-shot refreshes (initial start / resize) call the bridge directly.
+ */
+static void ohos_request_refresh_throttled(H264_CONTEXT* h264, H264_CONTEXT_OHOS* sys)
+{
+	if (!h264->yuvReadyContext)
+		return;
+
+	const uint64_t now = ohos_now_ms();
+	if (sys->lastRefreshRequestMs != 0 && (now - sys->lastRefreshRequestMs) < 500)
+	{
+		WLog_Print(h264->log, WLOG_DEBUG,
+		           "OHOS decoder: IDR refresh throttled (last request %llums ago)",
+		           (unsigned long long)(now - sys->lastRefreshRequestMs));
+		return;
+	}
+	sys->lastRefreshRequestMs = now;
+	surface_decoder_request_refresh(h264->yuvReadyContext);
+}
+
 /* ======================================================================
  * H.264 NAL unit inspection
  * ====================================================================== */
@@ -425,7 +471,8 @@ static bool start_buffer_mode(H264_CONTEXT* h264, H264_CONTEXT_OHOS* sys, int32_
 	sys->outputHeight = h;
 	sys->outputStride = 0;
 	sys->codecError = false;
-	sys->consecutiveErrors = 0;
+	/* consecutiveErrors intentionally NOT cleared — only real frame production
+	 * proves recovery (see surface_on_output / buffer-mode OK report). */
 	sys->savedWidth = w;
 	sys->savedHeight = h;
 	sys->savedSurfaceMode = false;
@@ -473,6 +520,15 @@ static void surface_on_output(OH_AVCodec* codec, uint32_t index, OH_AVBuffer* bu
 		if (h264)
 			WLog_Print(h264->log, WLOG_ERROR,
 			           "OHOS Surface: RenderOutputBuffer failed: %d (index=%u)", err, index);
+	}
+	else if (sys)
+	{
+		/* A frame actually reached the surface — the decoder has proven it is
+		 * healthy. consecutiveErrors is ONLY cleared on real frame production
+		 * (here for surface mode; at the OK report for buffer mode), never on a
+		 * merely successful Reset — otherwise the permanent-failure threshold
+		 * (-2) would be unreachable when the hardware errors on every frame. */
+		sys->consecutiveErrors = 0;
 	}
 }
 
@@ -606,7 +662,7 @@ static bool start_surface_mode(H264_CONTEXT* h264, H264_CONTEXT_OHOS* sys, int32
 	sys->surfaceMode = true;
 	sys->decoderStarted = true;
 	sys->codecError = false;
-	sys->consecutiveErrors = 0;
+	/* consecutiveErrors intentionally NOT cleared — see surface_on_output */
 	sys->width = w;
 	sys->height = h;
 	sys->outputWidth = w;
@@ -650,8 +706,30 @@ static BOOL ohos_reset_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS* sys)
 {
 	OH_AVErrCode err;
 
-	if (!sys->decoderStarted || sys->savedWidth <= 0 || sys->savedHeight <= 0)
+	/* decoderStarted is NOT required: after a failed rebuild (e.g. buffer-mode
+	 * restart failure during a surface-upgrade attempt) the decoder object still
+	 * exists in a stopped state and OH_VideoDecoder_Reset() is valid — refusing
+	 * to recover here would turn a transient failure into a guaranteed -2
+	 * permanent-failure disconnect. Only the format parameters are mandatory. */
+	if (!sys->decoder || sys->savedWidth <= 0 || sys->savedHeight <= 0)
 		return FALSE;
+
+#ifdef WITH_OHOS_HWCODEC_SURFACE
+	/* Half-surface guard: a "surface" rebuild without a live surfaceWindow would
+	 * register surface callbacks but skip SetSurface — the decoder then runs in
+	 * buffer mode while surface_on_output tries RenderOutputBuffer every frame
+	 * (fails), the output queue drains and a fresh stall follows. Rebuild in
+	 * plain buffer mode instead and tell the renderer the zero-copy path is gone. */
+	if (sys->savedSurfaceMode && !sys->surfaceWindow)
+	{
+		WLog_Print(h264->log, WLOG_WARN,
+		           "OHOS decoder: surfaceWindow lost — recovery falls back to buffer mode");
+		sys->savedSurfaceMode = false;
+		sys->surfaceMode = false;
+		if (h264->yuvReadyContext)
+			surface_decoder_deactivate_oes(h264->yuvReadyContext, (void*)h264);
+	}
+#endif
 
 	WLog_Print(h264->log, WLOG_WARN,
 	           "OHOS decoder: attempting reset recovery (%dx%d, surface=%d)",
@@ -745,9 +823,12 @@ static BOOL ohos_reset_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS* sys)
 		return FALSE;
 	}
 
-	/* Step 6: Restore decoder state */
+	/* Step 6: Restore decoder state.
+	 * consecutiveErrors is deliberately NOT cleared here: a successful Reset does
+	 * not prove the decoder can decode — only actually producing a frame does.
+	 * Clearing it here would make the permanent-failure threshold unreachable
+	 * when the hardware errors on every frame but Reset always succeeds. */
 	sys->codecError = false;
-	sys->consecutiveErrors = 0;
 	sys->decoderStarted = true;
 	sys->width = sys->savedWidth;
 	sys->height = sys->savedHeight;
@@ -759,6 +840,8 @@ static BOOL ohos_reset_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS* sys)
 	sys->hasProducedOutput = false;
 #ifdef WITH_OHOS_HWCODEC_SURFACE
 	sys->hasSpsReceived = false;
+	/* Keep runtime mode consistent with the mode we actually rebuilt in */
+	sys->surfaceMode = sys->savedSurfaceMode;
 #endif
 
 	WLog_Print(h264->log, WLOG_INFO,
@@ -781,30 +864,71 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 
 	/* Frame-stall watchdog: apply any pending recovery request (set from the
 	 * performance-monitor thread). Version bump signals a new request; we apply
-	 * it once per H264_CONTEXT. forceReset reuses the existing codecError→reset
-	 * path; downgrade switches this decoder back to buffer mode (BGRA/YUV). */
+	 * it once per H264_CONTEXT. The bridge is read-only + version-deduplicated,
+	 * so the version/flags persist for the whole session.
+	 *
+	 * Consumption semantics (recFlags: 0x1 = reset decoder, 0x2 = downgrade —
+	 * disable surface zero-copy), four cases (started × flag):
+	 *   started  + 0x2, surfaceMode  → flip to buffer mode, deactivate OES,
+	 *                                  force rebuild via codecError (self-contained:
+	 *                                  does NOT rely on 0x1 accompanying 0x2 —
+	 *                                  without a rebuild the decoder would keep
+	 *                                  surface callbacks while decompress takes
+	 *                                  the buffer path → 1s timeout per frame)
+	 *   started  + 0x2, !surfaceMode → already buffer mode; just forbid re-upgrade
+	 *   started  + 0x1               → codecError = true → reset recovery path below
+	 *   !started + 0x2               → only forbid the surface path for the upcoming
+	 *                                  start (decoder not built yet — nothing to
+	 *                                  rebuild, must NOT set codecError)
+	 *   !started + 0x1               → ignore: a decoder that never started needs no
+	 *                                  reset; it will start fresh anyway. Applying it
+	 *                                  would send a brand-new context into the error
+	 *                                  path and eventually a spurious -2 disconnect.
+	 *
+	 * Seeding: a freshly created H264_CONTEXT (resolution change / ResetGraphics /
+	 * monitor hotplug / GFX reconnect) starts with appliedRecoveryVersion == 0.
+	 * If a recovery happened earlier in this session, the bridge version is already
+	 * non-zero and its stale flags target a decoder that no longer exists — on the
+	 * first check we therefore only adopt the current version WITHOUT applying
+	 * flags. */
 	if (h264->yuvReadyContext)
 	{
 		int recVer = surface_decoder_get_recovery_version(h264->yuvReadyContext);
-		if (recVer != sys->appliedRecoveryVersion)
+		if (!sys->recoveryVersionSeeded)
+		{
+			sys->recoveryVersionSeeded = true;
+			sys->appliedRecoveryVersion = recVer;
+		}
+		else if (recVer != sys->appliedRecoveryVersion)
 		{
 			sys->appliedRecoveryVersion = recVer;
 			int recFlags = surface_decoder_take_recovery_flags(h264->yuvReadyContext);
+			bool started = sys->decoderStarted;
 #ifdef WITH_OHOS_HWCODEC_SURFACE
-			if ((recFlags & 0x2) && sys->surfaceMode)
+			if (recFlags & 0x2)
 			{
-				/* Downgrade to buffer mode: deactivate OES (clears surfaceMode in
-				 * gdi_bridge + restores EndPaint BGRA upload), forbid auto re-upgrade,
-				 * and rebuild via buffer callbacks on the upcoming reset. */
-				sys->surfaceMode = false;
-				sys->savedSurfaceMode = false;
+				/* Downgrade: forbid surface zero-copy from now on (both the initial
+				 * deferred start and the buffer→surface upgrade retry check
+				 * surfaceRetryCount). */
 				sys->surfaceRetryCount = 30;
-				surface_decoder_deactivate_oes(h264->yuvReadyContext, (void*)h264);
-				WLog_Print(h264->log, WLOG_WARN,
-				           "OHOS decoder: watchdog downgrade to buffer mode (version %d)", recVer);
+				sys->savedSurfaceMode = false;
+				if (sys->surfaceMode)
+				{
+					/* Deactivate OES (clears surfaceMode in gdi_bridge + restores
+					 * EndPaint BGRA upload) and force a rebuild with buffer
+					 * callbacks via the codecError→reset path. */
+					sys->surfaceMode = false;
+					sys->surfaceWindow = NULL;
+					surface_decoder_deactivate_oes(h264->yuvReadyContext, (void*)h264);
+					if (started)
+						sys->codecError = true;
+					WLog_Print(h264->log, WLOG_WARN,
+					           "OHOS decoder: watchdog downgrade to buffer mode (version %d)",
+					           recVer);
+				}
 			}
 #endif
-			if (recFlags & 0x1)
+			if ((recFlags & 0x1) && started)
 				sys->codecError = true; /* trigger existing reset recovery path below */
 		}
 	}
@@ -841,9 +965,10 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 		if (ohos_reset_decoder(h264, sys))
 		{
 			/* Reset succeeded — skip this frame, next frame will decode normally.
-			 * Request IDR refresh to ensure the decoder gets a key frame. */
-			if (h264->yuvReadyContext)
-				surface_decoder_request_refresh(h264->yuvReadyContext);
+			 * Request IDR refresh (throttled: at most once per 500ms) so the fresh
+			 * decoder gets a key frame without flooding the server when the
+			 * error→reset cycle repeats. */
+			ohos_request_refresh_throttled(h264, sys);
 			return -1;
 		}
 
@@ -854,8 +979,10 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 		return -1;
 	}
 
-	/* Reset counter on successful path — decoder is healthy */
-	sys->consecutiveErrors = 0;
+	/* NOTE: consecutiveErrors is NOT cleared just because codecError is currently
+	 * false — after a reset the flag is clear but the decoder is unproven. Only
+	 * actually producing a frame (surface_on_output / buffer OK report) clears it,
+	 * so a persistent per-frame error correctly reaches the -2 threshold. */
 
 	/* Determine resolution for decoder startup/resize */
 	int32_t w = ((int32_t)h264->width > 0) ? (int32_t)h264->width : sys->width;
@@ -864,10 +991,13 @@ static int ohos_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcS
 	if (h_val < OHOS_MINIMUM_HEIGHT) h_val = OHOS_MINIMUM_HEIGHT;
 
 #ifdef WITH_OHOS_HWCODEC_SURFACE
-	/* Deferred start: on first Decompress, try Surface mode first */
+	/* Deferred start: on first Decompress, try Surface mode first.
+	 * surfaceRetryCount >= 30 means the surface path has been forbidden (watchdog
+	 * downgrade flag 0x2 received before start) — start directly in buffer mode. */
 	if (!sys->decoderStarted)
 	{
-		if (h264->yuvReadyContext && start_surface_mode(h264, sys, w, h_val))
+		if (h264->yuvReadyContext && sys->surfaceRetryCount < 30 &&
+		    start_surface_mode(h264, sys, w, h_val))
 		{
 			/* Refresh is now coordinated by surface_decoder_activate_oes() in
 			 * gdi_bridge.cpp — it waits for ALL renderers to have active OES
@@ -1032,7 +1162,11 @@ surface_path:
 			sys->outputHeight = newH;
 			sys->outputStride = 0;
 			sys->codecError = false;
-			sys->consecutiveErrors = 0;
+			/* Keep saved recovery parameters in sync so a later reset rebuilds
+			 * at the CURRENT resolution, not the pre-resize one. */
+			sys->savedWidth = newW;
+			sys->savedHeight = newH;
+			sys->savedSurfaceMode = true;
 
 			/* Re-activate OES mode for new NativeImage */
 			surface_decoder_activate_oes(h264->yuvReadyContext, (void*)h264);
@@ -1192,7 +1326,10 @@ surface_path:
 		sys->outputHeight = newH;
 		sys->outputStride = 0;
 		sys->codecError = false;
-		sys->consecutiveErrors = 0;
+		/* Keep saved recovery parameters in sync (see surface resize path) */
+		sys->savedWidth = newW;
+		sys->savedHeight = newH;
+		sys->savedSurfaceMode = false;
 		sys->totalDecompressCalls = 0;
 		sys->consecutiveTimeouts = 0;
 		sys->hasProducedOutput = false;
@@ -1358,8 +1495,11 @@ surface_path:
 	sys->outputIndex = -1;
 	sys->outputBuffer = NULL;
 
-	/* Buffer-mode frame produced successfully — signal the watchdog to reset its
-	 * stall state machine. (Surface mode relies on OES frame consumption instead.) */
+	/* Buffer-mode frame produced successfully — the decoder has proven it is
+	 * healthy: clear the consecutive-error counter (BUG-3 semantics: only real
+	 * frame production clears it) and signal the watchdog to reset its stall
+	 * state machine. (Surface mode clears the counter in surface_on_output.) */
+	sys->consecutiveErrors = 0;
 	if (h264->yuvReadyContext)
 		surface_decoder_report_decode_error(h264->yuvReadyContext, (void*)h264,
 		                                    4 /* OK */, 0, 0);
@@ -1459,6 +1599,13 @@ static BOOL ohos_init(H264_CONTEXT* h264)
 	sys->savedHeight = 0;
 	sys->savedSurfaceMode = false;
 	sys->consecutiveErrors = 0;
+
+	/* Watchdog recovery-version seeding is done lazily on the first decompress
+	 * (h264->yuvReadyContext is not yet attached at init time): the first check
+	 * only adopts the bridge's current version without applying stale flags. */
+	sys->appliedRecoveryVersion = 0;
+	sys->recoveryVersionSeeded = false;
+	sys->lastRefreshRequestMs = 0;
 
 	sys->decoderStarted = false;
 #ifdef WITH_OHOS_HWCODEC_SURFACE
