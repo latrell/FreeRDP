@@ -24,61 +24,63 @@
 #include <winpr/assert.h>
 
 #include "pf_input.h"
+#include "pf_client.h"
+#include "pf_server.h"
 #include <freerdp/server/proxy/proxy_config.h>
-#include <freerdp/server/proxy/proxy_context.h>
 
 #include "proxy_modules.h"
 
+WINPR_ATTR_NODISCARD
 static BOOL pf_server_check_and_sync_input_state(pClientContext* pc)
 {
 	WINPR_ASSERT(pc);
 
-	if (!freerdp_is_active_state(&pc->context))
+	if (!freerdp_is_active_state(&pc->cctx.context))
 		return FALSE;
 	if (pc->input_state_sync_pending)
 	{
-		BOOL rc = freerdp_input_send_synchronize_event(pc->context.input, pc->input_state);
+		BOOL rc = freerdp_input_send_synchronize_event(pc->cctx.context.input, pc->input_state);
 		if (rc)
 			pc->input_state_sync_pending = FALSE;
 	}
 	return TRUE;
 }
 
+WINPR_ATTR_NODISCARD
 static BOOL pf_server_synchronize_event(rdpInput* input, UINT32 flags)
 {
-	pServerContext* ps = NULL;
-	pClientContext* pc = NULL;
-
 	WINPR_ASSERT(input);
-	ps = (pServerContext*)input->context;
+	pServerContext* ps = (pServerContext*)input->context;
 	WINPR_ASSERT(ps);
 	WINPR_ASSERT(ps->pdata);
 
-	pc = ps->pdata->pc;
-	WINPR_ASSERT(pc);
+	pClientContext* pc = proxy_data_get_client_context(ps->pdata);
+	if (!pc)
+		return TRUE;
 
 	pc->input_state = flags;
 	pc->input_state_sync_pending = TRUE;
 
-	return pf_server_check_and_sync_input_state(pc);
+	if (!pf_server_check_and_sync_input_state(pc))
+		return TRUE;
+	return TRUE;
 }
 
+WINPR_ATTR_NODISCARD
 static BOOL pf_server_keyboard_event(rdpInput* input, UINT16 flags, UINT8 code)
 {
-	const proxyConfig* config = NULL;
-	proxyKeyboardEventInfo event = { 0 };
-	pServerContext* ps = NULL;
-	pClientContext* pc = NULL;
+	proxyKeyboardEventInfo event = WINPR_C_ARRAY_INIT;
 
 	WINPR_ASSERT(input);
-	ps = (pServerContext*)input->context;
+	pServerContext* ps = (pServerContext*)input->context;
 	WINPR_ASSERT(ps);
 	WINPR_ASSERT(ps->pdata);
 
-	pc = ps->pdata->pc;
-	WINPR_ASSERT(pc);
+	pClientContext* pc = proxy_data_get_client_context(ps->pdata);
+	if (!pc)
+		return TRUE;
 
-	config = ps->pdata->config;
+	const proxyConfig* config = ps->pdata->config;
 	WINPR_ASSERT(config);
 
 	if (!pf_server_check_and_sync_input_state(pc))
@@ -91,27 +93,26 @@ static BOOL pf_server_keyboard_event(rdpInput* input, UINT16 flags, UINT8 code)
 	event.rdp_scan_code = code;
 
 	if (pf_modules_run_filter(pc->pdata->module, FILTER_TYPE_KEYBOARD, pc->pdata, &event))
-		return freerdp_input_send_keyboard_event(pc->context.input, flags, code);
+		return freerdp_input_send_keyboard_event(pc->cctx.context.input, flags, code);
 
 	return TRUE;
 }
 
+WINPR_ATTR_NODISCARD
 static BOOL pf_server_unicode_keyboard_event(rdpInput* input, UINT16 flags, UINT16 code)
 {
-	const proxyConfig* config = NULL;
-	proxyUnicodeEventInfo event = { 0 };
-	pServerContext* ps = NULL;
-	pClientContext* pc = NULL;
+	proxyUnicodeEventInfo event = WINPR_C_ARRAY_INIT;
 
 	WINPR_ASSERT(input);
-	ps = (pServerContext*)input->context;
+	pServerContext* ps = (pServerContext*)input->context;
 	WINPR_ASSERT(ps);
 	WINPR_ASSERT(ps->pdata);
 
-	pc = ps->pdata->pc;
-	WINPR_ASSERT(pc);
+	pClientContext* pc = proxy_data_get_client_context(ps->pdata);
+	if (!pc)
+		return TRUE;
 
-	config = ps->pdata->config;
+	const proxyConfig* config = ps->pdata->config;
 	WINPR_ASSERT(config);
 
 	if (!pf_server_check_and_sync_input_state(pc))
@@ -123,26 +124,25 @@ static BOOL pf_server_unicode_keyboard_event(rdpInput* input, UINT16 flags, UINT
 	event.flags = flags;
 	event.code = code;
 	if (pf_modules_run_filter(pc->pdata->module, FILTER_TYPE_UNICODE, pc->pdata, &event))
-		return freerdp_input_send_unicode_keyboard_event(pc->context.input, flags, code);
+		return freerdp_input_send_unicode_keyboard_event(pc->cctx.context.input, flags, code);
 	return TRUE;
 }
 
+WINPR_ATTR_NODISCARD
 static BOOL pf_server_mouse_event(rdpInput* input, UINT16 flags, UINT16 x, UINT16 y)
 {
-	proxyMouseEventInfo event = { 0 };
-	const proxyConfig* config = NULL;
-	pServerContext* ps = NULL;
-	pClientContext* pc = NULL;
+	proxyMouseEventInfo event = WINPR_C_ARRAY_INIT;
 
 	WINPR_ASSERT(input);
-	ps = (pServerContext*)input->context;
+	pServerContext* ps = (pServerContext*)input->context;
 	WINPR_ASSERT(ps);
 	WINPR_ASSERT(ps->pdata);
 
-	pc = ps->pdata->pc;
-	WINPR_ASSERT(pc);
+	pClientContext* pc = proxy_data_get_client_context(ps->pdata);
+	if (!pc)
+		return TRUE;
 
-	config = ps->pdata->config;
+	const proxyConfig* config = ps->pdata->config;
 	WINPR_ASSERT(config);
 
 	if (!pf_server_check_and_sync_input_state(pc))
@@ -156,27 +156,27 @@ static BOOL pf_server_mouse_event(rdpInput* input, UINT16 flags, UINT16 x, UINT1
 	event.y = y;
 
 	if (pf_modules_run_filter(pc->pdata->module, FILTER_TYPE_MOUSE, pc->pdata, &event))
-		return freerdp_input_send_mouse_event(pc->context.input, flags, x, y);
+		return freerdp_input_send_mouse_event(pc->cctx.context.input, flags, x, y);
 
 	return TRUE;
 }
 
+WINPR_ATTR_NODISCARD
 static BOOL pf_server_extended_mouse_event(rdpInput* input, UINT16 flags, UINT16 x, UINT16 y)
 {
-	const proxyConfig* config = NULL;
-	proxyMouseExEventInfo event = { 0 };
-	pServerContext* ps = NULL;
-	pClientContext* pc = NULL;
+	proxyMouseExEventInfo event = WINPR_C_ARRAY_INIT;
 
 	WINPR_ASSERT(input);
-	ps = (pServerContext*)input->context;
+
+	pServerContext* ps = (pServerContext*)input->context;
 	WINPR_ASSERT(ps);
 	WINPR_ASSERT(ps->pdata);
 
-	pc = ps->pdata->pc;
-	WINPR_ASSERT(pc);
+	pClientContext* pc = proxy_data_get_client_context(ps->pdata);
+	if (!pc)
+		return TRUE;
 
-	config = ps->pdata->config;
+	const proxyConfig* config = ps->pdata->config;
 	WINPR_ASSERT(config);
 
 	if (!pf_server_check_and_sync_input_state(pc))
@@ -188,8 +188,8 @@ static BOOL pf_server_extended_mouse_event(rdpInput* input, UINT16 flags, UINT16
 	event.flags = flags;
 	event.x = x;
 	event.y = y;
-	if (pf_modules_run_filter(pc->pdata->module, FILTER_TYPE_MOUSE, pc->pdata, &event))
-		return freerdp_input_send_extended_mouse_event(pc->context.input, flags, x, y);
+	if (pf_modules_run_filter(pc->pdata->module, FILTER_TYPE_MOUSE_EX, pc->pdata, &event))
+		return freerdp_input_send_extended_mouse_event(pc->cctx.context.input, flags, x, y);
 	return TRUE;
 }
 

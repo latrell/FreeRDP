@@ -20,6 +20,7 @@
 #ifndef WINPR_CUSTOM_CRYPTO_H
 #define WINPR_CUSTOM_CRYPTO_H
 
+#include <winpr/config.h>
 #include <winpr/winpr.h>
 #include <winpr/wtypes.h>
 
@@ -74,19 +75,27 @@ extern "C"
 {
 #endif
 
+	WINPR_ATTR_NODISCARD
 	WINPR_API WINPR_MD_TYPE winpr_md_type_from_string(const char* name);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API const char* winpr_md_type_to_string(WINPR_MD_TYPE md);
 
 	WINPR_API void winpr_HMAC_Free(WINPR_HMAC_CTX* ctx);
 
 	WINPR_ATTR_MALLOC(winpr_HMAC_Free, 1)
-	WINPR_ATTR_NODISCARD
 	WINPR_API WINPR_HMAC_CTX* winpr_HMAC_New(void);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_HMAC_Init(WINPR_HMAC_CTX* ctx, WINPR_MD_TYPE md, const void* key,
 	                               size_t keylen);
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_HMAC_Update(WINPR_HMAC_CTX* ctx, const void* input, size_t ilen);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_HMAC_Final(WINPR_HMAC_CTX* ctx, void* output, size_t olen);
 
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_HMAC(WINPR_MD_TYPE md, const void* key, size_t keylen, const void* input,
 	                          size_t ilen, void* output, size_t olen);
 
@@ -108,20 +117,35 @@ extern "C"
 	WINPR_API void winpr_Digest_Free(WINPR_DIGEST_CTX* ctx);
 
 	WINPR_ATTR_MALLOC(winpr_Digest_Free, 1)
-	WINPR_ATTR_NODISCARD
 	WINPR_API WINPR_DIGEST_CTX* winpr_Digest_New(void);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_Digest_Init_Allow_FIPS(WINPR_DIGEST_CTX* ctx, WINPR_MD_TYPE md);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_Digest_Init(WINPR_DIGEST_CTX* ctx, WINPR_MD_TYPE md);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_Digest_Update(WINPR_DIGEST_CTX* ctx, const void* input, size_t ilen);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_Digest_Final(WINPR_DIGEST_CTX* ctx, void* output, size_t olen);
 
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_Digest_Allow_FIPS(WINPR_MD_TYPE md, const void* input, size_t ilen,
 	                                       void* output, size_t olen);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_Digest(WINPR_MD_TYPE md, const void* input, size_t ilen, void* output,
 	                            size_t olen);
 
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_DigestSign_Init(WINPR_DIGEST_CTX* ctx, WINPR_MD_TYPE md, void* key);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_DigestSign_Update(WINPR_DIGEST_CTX* ctx, const void* input, size_t ilen);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_DigestSign_Final(WINPR_DIGEST_CTX* ctx, void* output, size_t* piolen);
 
 #ifdef __cplusplus
@@ -137,7 +161,10 @@ extern "C"
 {
 #endif
 
+	WINPR_ATTR_NODISCARD
 	WINPR_API int winpr_RAND(void* output, size_t len);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API int winpr_RAND_pseudo(void* output, size_t len);
 
 #ifdef __cplusplus
@@ -158,12 +185,12 @@ extern "C"
 	WINPR_API void winpr_RC4_Free(WINPR_RC4_CTX* ctx);
 
 	WINPR_ATTR_MALLOC(winpr_RC4_Free, 1)
-	WINPR_ATTR_NODISCARD
 	WINPR_API WINPR_RC4_CTX* winpr_RC4_New_Allow_FIPS(const void* key, size_t keylen);
 
 	WINPR_ATTR_MALLOC(winpr_RC4_Free, 1)
-	WINPR_ATTR_NODISCARD
 	WINPR_API WINPR_RC4_CTX* winpr_RC4_New(const void* key, size_t keylen);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_RC4_Update(WINPR_RC4_CTX* ctx, size_t length, const void* input,
 	                                void* output);
 
@@ -255,6 +282,7 @@ extern "C"
 	 *
 	 *  @since version 3.10.0
 	 */
+	WINPR_ATTR_NODISCARD
 	WINPR_API WINPR_CIPHER_TYPE winpr_cipher_type_from_string(const char* name);
 
 	/** @brief convert a cipher enum value to string
@@ -264,17 +292,19 @@ extern "C"
 	 *
 	 *  @since version 3.10.0
 	 */
+	WINPR_ATTR_NODISCARD
 	WINPR_API const char* winpr_cipher_type_to_string(WINPR_CIPHER_TYPE md);
 
 	WINPR_API void winpr_Cipher_Free(WINPR_CIPHER_CTX* ctx);
 
-#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
+#if !defined(WITHOUT_WINPR_3x_DEPRECATED)
 	WINPR_DEPRECATED_VAR("[since 3.10.0] use winpr_Cipher_NewEx",
 	                     WINPR_ATTR_MALLOC(winpr_Cipher_Free, 1)
-	                         WINPR_ATTR_NODISCARD WINPR_API WINPR_CIPHER_CTX* winpr_Cipher_New(
-	                             WINPR_CIPHER_TYPE cipher, WINPR_CRYPTO_OPERATION op,
-	                             const void* key, const void* iv));
-#endif
+	                         WINPR_API WINPR_CIPHER_CTX* winpr_Cipher_New(WINPR_CIPHER_TYPE cipher,
+	                                                                      WINPR_CRYPTO_OPERATION op,
+	                                                                      const void* key,
+	                                                                      const void* iv));
+#endif /* WITHOUT_WINPR_3x_DEPRECATED */
 
 	/** @brief Create a new \b WINPR_CIPHER_CTX
 	 *
@@ -288,18 +318,23 @@ extern "C"
 	 * @param iv A pointer to the IV material (size must match expectations for the cipher used)
 	 * @param ivlen The length in bytes of the IV
 	 *
-	 * @return A newly allocated context or \b NULL
+	 * @return A newly allocated context or \b nullptr
 	 *
 	 * @since version 3.10.0
 	 */
 	WINPR_ATTR_MALLOC(winpr_Cipher_Free, 1)
-	WINPR_ATTR_NODISCARD
 	WINPR_API WINPR_CIPHER_CTX* winpr_Cipher_NewEx(WINPR_CIPHER_TYPE cipher,
 	                                               WINPR_CRYPTO_OPERATION op, const void* key,
 	                                               size_t keylen, const void* iv, size_t ivlen);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_Cipher_SetPadding(WINPR_CIPHER_CTX* ctx, BOOL enabled);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_Cipher_Update(WINPR_CIPHER_CTX* ctx, const void* input, size_t ilen,
 	                                   void* output, size_t* olen);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL winpr_Cipher_Final(WINPR_CIPHER_CTX* ctx, void* output, size_t* olen);
 
 #ifdef __cplusplus
@@ -315,6 +350,7 @@ extern "C"
 {
 #endif
 
+	WINPR_ATTR_NODISCARD
 	WINPR_API int winpr_Cipher_BytesToKey(int cipher, WINPR_MD_TYPE md, const void* salt,
 	                                      const void* data, size_t datal, size_t count, void* key,
 	                                      void* iv);

@@ -85,7 +85,7 @@ static BOOL test_winpr_asprintf(void)
 	const char test[] = "test string case";
 	const size_t len = strnlen(test, sizeof(test));
 
-	char* str = NULL;
+	char* str = nullptr;
 	size_t slen = 0;
 	const int res = winpr_asprintf(&str, &slen, "%s", test);
 	if (!str)
@@ -104,15 +104,153 @@ fail:
 	return rc;
 }
 
+static BOOL test_winpr_strnstr(void)
+{
+	struct strnstr_test
+	{
+		const char* haystack;
+		const char* needle;
+		size_t hlen;
+		int expected; /* offset of the match, or -1 when NULL is expected */
+	};
+	const struct strnstr_test tests[] = {
+		/* regression: a needle longer than hlen must never match on a prefix.
+		 * winpr_strnstr used to clamp the needle length to hlen, so these
+		 * returned the haystack instead of NULL (see gateway http_response_recv
+		 * SIGSEGV). */
+		{ "ab", "\r\n", 0, -1 },
+		{ "x!", "xy", 1, -1 },
+		{ "abc", "abc", 2, -1 },
+		/* an empty needle returns the haystack */
+		{ "abc", "", 5, 0 },
+		/* basic matches */
+		{ "a\r\nb", "\r\n", 4, 1 },
+		{ "xxab", "ab", 4, 2 },
+		{ "xxxx", "ab", 4, -1 },
+		{ "abc", "abc", 3, 0 },
+		/* hlen == 0 finds nothing */
+		{ "abc", "a", 0, -1 },
+		/* an hlen larger than the string just searches the whole string */
+		{ "abc", "a", SIZE_MAX, 0 },
+	};
+
+	for (size_t i = 0; i < ARRAYSIZE(tests); i++)
+	{
+		const struct strnstr_test* t = &tests[i];
+		char haystack[32] = { 0 };
+		strncpy(haystack, t->haystack, sizeof(haystack) - 1);
+
+		char* res = winpr_strnstr(haystack, t->needle, t->hlen);
+		char* exp = (t->expected < 0) ? nullptr : haystack + t->expected;
+		if (res != exp)
+		{
+			printf("winpr_strnstr error: case %" PRIuz " (\"%s\", \"%s\", %" PRIuz "): "
+			       "actual %p, expected %p\n",
+			       i, t->haystack, t->needle, t->hlen, (void*)res, (void*)exp);
+			return FALSE;
+		}
+	}
+
+	/* An embedded NUL terminates the search, matching native strnstr: "cd" sits
+	 * past the NUL, so it must not be found even though hlen spans it. */
+	char embedded[8] = { 'a', 'b', '\0', 'c', 'd', '\0', '\0', '\0' };
+	if (winpr_strnstr(embedded, "cd", 5) != nullptr)
+	{
+		printf("winpr_strnstr error: matched past an embedded NUL terminator\n");
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+static BOOL test_valid_url(void)
+{
+	struct test_t
+	{
+		char* string;
+		size_t len;
+		BOOL isUrl;
+	};
+
+	static const struct test_t tests[] = { { "foo.bar.blabla", 15, TRUE },
+		                                   { "somehostname", 12, TRUE },
+		                                   { "somehostname:1234", 17, TRUE },
+		                                   { "tsv://somehostname", 18, TRUE },
+		                                   { "tsv://somehostname/path/foo/gaga", 32, TRUE },
+		                                   { "tsv://somehostname:1234", 23, TRUE },
+		                                   { "tsv://somehostname:1234/path/foo", 33, TRUE },
+		                                   { "lala\rgaga\n", 12, FALSE },
+		                                   { "192.168.0.1", 11, TRUE },
+		                                   //{ "192.168.0.1:1234", 16, FALSE },
+		                                   //{ "192.168.0.1:1234/foo/", 21, FALSE },
+		                                   { "192.168.0.1/bar/foo/", 20, TRUE },
+		                                   { "[::1]", 5, FALSE },
+		                                   { "[::1]:1234", 8, FALSE },
+		                                   { "[2001:db8:3333:4444:5555:6666:7777:8888]", 40,
+		                                     FALSE },
+		                                   { "[2001:db8::1]", 13, FALSE } };
+	BOOL rc = TRUE;
+	for (size_t x = 0; x < ARRAYSIZE(tests); x++)
+	{
+		const struct test_t* cur = &tests[x];
+
+		const BOOL rc1 = winpr_str_is_valid_url(cur->string);
+		const BOOL rc2 = winpr_str_is_valid_urlN(cur->string, cur->len);
+
+#if defined(WINPR_HAVE_REGCOMP) || defined(WITH_URIPARSER)
+		if (rc1 != rc2)
+			rc = FALSE;
+		if (rc1 != cur->isUrl)
+			rc = FALSE;
+#else
+		fprintf(stderr, "[%s] TODO: !defined(WINPR_HAVE_REGCOMP) && !defined(WITH_URIPARSER)\n",
+		        __func__);
+#endif
+	}
+
+	return rc;
+}
+
+static BOOL test_newline(void)
+{
+	struct test_t
+	{
+		char* string;
+		size_t len;
+		BOOL hasNewlines;
+	};
+
+	const struct test_t tests[] = { { "foo.bar.blabla", 15, FALSE },
+		                            { "somehostname", 12, FALSE },
+		                            { "lala\rgaga\n", 13, TRUE } };
+
+	for (size_t x = 0; x < ARRAYSIZE(tests); x++)
+	{
+		const struct test_t* cur = &tests[x];
+
+		const BOOL rc1 = winpr_str_has_newlines(cur->string);
+		if (rc1 != cur->hasNewlines)
+			return FALSE;
+	}
+
+	return TRUE;
+}
+
 int TestString(int argc, char* argv[])
 {
-	const WCHAR* p = NULL;
+	const WCHAR* p = nullptr;
 	size_t pos = 0;
 	size_t length = 0;
-	WCHAR* context = NULL;
+	WCHAR* context = nullptr;
 
 	WINPR_UNUSED(argc);
 	WINPR_UNUSED(argv);
+
+	if (!test_valid_url())
+		return -1;
+
+	if (!test_newline())
+		return -1;
 
 	if (!test_winpr_asprintf())
 		return -1;
@@ -120,8 +258,11 @@ int TestString(int argc, char* argv[])
 	if (!test_url_escape())
 		return -1;
 
+	if (!test_winpr_strnstr())
+		return -1;
+
 	/* _wcslen */
-	WCHAR testStringW[ARRAYSIZE(testStringA)] = { 0 };
+	WCHAR testStringW[ARRAYSIZE(testStringA)] = WINPR_C_ARRAY_INIT;
 	(void)ConvertUtf8NToWChar(testStringA, ARRAYSIZE(testStringA), testStringW,
 	                          ARRAYSIZE(testStringW));
 	const size_t testStringW_Length = testStringA_Length;
@@ -163,23 +304,23 @@ int TestString(int argc, char* argv[])
 
 	p = _wcschr(&testStringW[pos + 1], search.w);
 
-	if (p != NULL)
+	if (p != nullptr)
 	{
-		printf("_wcschr error: return value mismatch: Actual: %p, Expected: NULL\n",
+		printf("_wcschr error: return value mismatch: Actual: %p, Expected: nullptr\n",
 		       (const void*)p);
 		return -1;
 	}
 
 	/* wcstok_s */
-	WCHAR testDelimiterW[ARRAYSIZE(testDelimiterA)] = { 0 };
-	WCHAR testTokensW[ARRAYSIZE(testTokensA)] = { 0 };
+	WCHAR testDelimiterW[ARRAYSIZE(testDelimiterA)] = WINPR_C_ARRAY_INIT;
+	WCHAR testTokensW[ARRAYSIZE(testTokensA)] = WINPR_C_ARRAY_INIT;
 	(void)ConvertUtf8NToWChar(testTokensA, ARRAYSIZE(testTokensA), testTokensW,
 	                          ARRAYSIZE(testTokensW));
 	(void)ConvertUtf8NToWChar(testDelimiterA, ARRAYSIZE(testDelimiterA), testDelimiterW,
 	                          ARRAYSIZE(testDelimiterW));
 	p = wcstok_s(testTokensW, testDelimiterW, &context);
 
-	WCHAR testToken1W[ARRAYSIZE(testToken1A)] = { 0 };
+	WCHAR testToken1W[ARRAYSIZE(testToken1A)] = WINPR_C_ARRAY_INIT;
 	(void)ConvertUtf8NToWChar(testToken1A, ARRAYSIZE(testToken1A), testToken1W,
 	                          ARRAYSIZE(testToken1W));
 	if (memcmp(p, testToken1W, sizeof(testToken1W)) != 0)
@@ -188,9 +329,9 @@ int TestString(int argc, char* argv[])
 		return -1;
 	}
 
-	p = wcstok_s(NULL, testDelimiterW, &context);
+	p = wcstok_s(nullptr, testDelimiterW, &context);
 
-	WCHAR testToken2W[ARRAYSIZE(testToken2A)] = { 0 };
+	WCHAR testToken2W[ARRAYSIZE(testToken2A)] = WINPR_C_ARRAY_INIT;
 	(void)ConvertUtf8NToWChar(testToken2A, ARRAYSIZE(testToken2A), testToken2W,
 	                          ARRAYSIZE(testToken2W));
 	if (memcmp(p, testToken2W, sizeof(testToken2W)) != 0)
@@ -199,9 +340,9 @@ int TestString(int argc, char* argv[])
 		return -1;
 	}
 
-	p = wcstok_s(NULL, testDelimiterW, &context);
+	p = wcstok_s(nullptr, testDelimiterW, &context);
 
-	WCHAR testToken3W[ARRAYSIZE(testToken3A)] = { 0 };
+	WCHAR testToken3W[ARRAYSIZE(testToken3A)] = WINPR_C_ARRAY_INIT;
 	(void)ConvertUtf8NToWChar(testToken3A, ARRAYSIZE(testToken3A), testToken3W,
 	                          ARRAYSIZE(testToken3W));
 	if (memcmp(p, testToken3W, sizeof(testToken3W)) != 0)
@@ -210,11 +351,11 @@ int TestString(int argc, char* argv[])
 		return -1;
 	}
 
-	p = wcstok_s(NULL, testDelimiterW, &context);
+	p = wcstok_s(nullptr, testDelimiterW, &context);
 
-	if (p != NULL)
+	if (p != nullptr)
 	{
-		printf("wcstok_s error: return value is not NULL\n");
+		printf("wcstok_s error: return value is not nullptr\n");
 		return -1;
 	}
 

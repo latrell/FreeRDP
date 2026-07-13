@@ -44,10 +44,10 @@ extern "C"
 	struct S_H264_CONTEXT_SUBSYSTEM
 	{
 		const char* name;
-		pfnH264SubsystemInit Init;
+		WINPR_ATTR_NODISCARD pfnH264SubsystemInit Init;
 		pfnH264SubsystemUninit Uninit;
-		pfnH264SubsystemDecompress Decompress;
-		pfnH264SubsystemCompress Compress;
+		WINPR_ATTR_NODISCARD pfnH264SubsystemDecompress Decompress;
+		WINPR_ATTR_NODISCARD pfnH264SubsystemCompress Compress;
 	};
 
 	/* YUV passthrough callback — set by application layer.
@@ -93,17 +93,21 @@ extern "C"
 		void* lumaData;
 		wLog* log;
 
+		UINT32 YUVWidth;
+		UINT32 YUVHeight;
+
 		pfnH264YuvReady yuvReadyCallback;
 		void* yuvReadyContext;
 
-		BOOL surfaceDecoding;  /* TRUE when Decompress returns 0 (zero-copy/Surface mode) */
+		BOOL surfaceDecoding; /* TRUE when Decompress returns 0 (zero-copy/Surface mode) */
 
-	int32_t surfaceOriginX; /* GFX surface output origin X in desktop coordinates */
-	int32_t surfaceOriginY; /* GFX surface output origin Y in desktop coordinates */
-	int32_t surfaceWidth;   /* GFX surface actual content width (unaligned) */
-	int32_t surfaceHeight;  /* GFX surface actual content height (unaligned) */
+		int32_t surfaceOriginX; /* GFX surface output origin X in desktop coordinates */
+		int32_t surfaceOriginY; /* GFX surface output origin Y in desktop coordinates */
+		int32_t surfaceWidth;   /* GFX surface actual content width (unaligned) */
+		int32_t surfaceHeight;  /* GFX surface actual content height (unaligned) */
 	};
 
+	WINPR_ATTR_NODISCARD
 	FREERDP_LOCAL BOOL avc420_ensure_buffer(H264_CONTEXT* h264, UINT32 stride, UINT32 width,
 	                                        UINT32 height);
 

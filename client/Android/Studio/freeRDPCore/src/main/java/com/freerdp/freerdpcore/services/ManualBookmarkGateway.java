@@ -10,122 +10,70 @@
 
 package com.freerdp.freerdpcore.services;
 
-import android.content.ContentValues;
-import android.database.Cursor;
-import android.database.sqlite.SQLiteOpenHelper;
+import androidx.lifecycle.LiveData;
 
+import com.freerdp.freerdpcore.data.BookmarkConverter;
+import com.freerdp.freerdpcore.data.BookmarkDao;
+import com.freerdp.freerdpcore.data.BookmarkEntity;
 import com.freerdp.freerdpcore.domain.BookmarkBase;
-import com.freerdp.freerdpcore.domain.ManualBookmark;
 
 import java.util.ArrayList;
+import java.util.List;
 
-public class ManualBookmarkGateway extends BookmarkBaseGateway
+public class ManualBookmarkGateway
 {
+	private final BookmarkDao dao;
 
-	public ManualBookmarkGateway(SQLiteOpenHelper bookmarkDB)
+	public ManualBookmarkGateway(BookmarkDao dao)
 	{
-		super(bookmarkDB);
+		this.dao = dao;
 	}
 
-	@Override protected BookmarkBase createBookmark()
+	public LiveData<List<BookmarkEntity>> getAllLiveData()
 	{
-		return new ManualBookmark();
+		return dao.getAllLiveData();
 	}
 
-	@Override protected String getBookmarkTableName()
+	public ArrayList<BookmarkBase> findAll()
 	{
-		return BookmarkDB.DB_TABLE_BOOKMARK;
+		List<BookmarkEntity> entities = dao.getAll();
+		ArrayList<BookmarkBase> result = new ArrayList<>(entities.size());
+		for (BookmarkEntity e : entities)
+			result.add(BookmarkConverter.toBookmark(e));
+		return result;
 	}
 
-	@Override
-	protected void addBookmarkSpecificColumns(BookmarkBase bookmark, ContentValues columns)
+	public BookmarkBase findById(long id)
 	{
-		ManualBookmark bm = (ManualBookmark)bookmark;
-		columns.put(BookmarkDB.DB_KEY_BOOKMARK_HOSTNAME, bm.getHostname());
-		columns.put(BookmarkDB.DB_KEY_BOOKMARK_PORT, bm.getPort());
-
-		// gateway settings
-		columns.put(BookmarkDB.DB_KEY_BOOKMARK_GW_ENABLE, bm.getEnableGatewaySettings());
-		columns.put(BookmarkDB.DB_KEY_BOOKMARK_GW_HOSTNAME, bm.getGatewaySettings().getHostname());
-		columns.put(BookmarkDB.DB_KEY_BOOKMARK_GW_PORT, bm.getGatewaySettings().getPort());
-		columns.put(BookmarkDB.DB_KEY_BOOKMARK_GW_USERNAME, bm.getGatewaySettings().getUsername());
-		columns.put(BookmarkDB.DB_KEY_BOOKMARK_GW_PASSWORD, bm.getGatewaySettings().getPassword());
-		columns.put(BookmarkDB.DB_KEY_BOOKMARK_GW_DOMAIN, bm.getGatewaySettings().getDomain());
+		BookmarkEntity e = dao.getById(id);
+		return (e != null) ? BookmarkConverter.toBookmark(e) : null;
 	}
 
-	@Override protected void addBookmarkSpecificColumns(ArrayList<String> columns)
+	public long insert(BookmarkBase bookmark)
 	{
-		columns.add(BookmarkDB.DB_KEY_BOOKMARK_HOSTNAME);
-		columns.add(BookmarkDB.DB_KEY_BOOKMARK_PORT);
-		columns.add(BookmarkDB.DB_KEY_BOOKMARK_GW_ENABLE);
-		columns.add(BookmarkDB.DB_KEY_BOOKMARK_GW_HOSTNAME);
-		columns.add(BookmarkDB.DB_KEY_BOOKMARK_GW_PORT);
-		columns.add(BookmarkDB.DB_KEY_BOOKMARK_GW_USERNAME);
-		columns.add(BookmarkDB.DB_KEY_BOOKMARK_GW_PASSWORD);
-		columns.add(BookmarkDB.DB_KEY_BOOKMARK_GW_DOMAIN);
+		long newId = dao.insert(BookmarkConverter.toEntity(bookmark));
+		bookmark.setId(newId);
+		return newId;
 	}
 
-	@Override protected void readBookmarkSpecificColumns(BookmarkBase bookmark, Cursor cursor)
+	public boolean update(BookmarkBase bookmark)
 	{
-		ManualBookmark bm = (ManualBookmark)bookmark;
-		bm.setHostname(
-		    cursor.getString(cursor.getColumnIndex(BookmarkDB.DB_KEY_BOOKMARK_HOSTNAME)));
-		bm.setPort(cursor.getInt(cursor.getColumnIndex(BookmarkDB.DB_KEY_BOOKMARK_PORT)));
-
-		bm.setEnableGatewaySettings(
-		    cursor.getInt(cursor.getColumnIndex(BookmarkDB.DB_KEY_BOOKMARK_GW_ENABLE)) != 0);
-		readGatewaySettings(bm, cursor);
+		dao.update(BookmarkConverter.toEntity(bookmark));
+		return true;
 	}
 
-	public BookmarkBase findByLabelOrHostname(String pattern)
+	public boolean delete(long id)
 	{
-		if (pattern.length() == 0)
-			return null;
-
-		Cursor cursor =
-		    queryBookmarks(BookmarkDB.DB_KEY_BOOKMARK_LABEL + " = '" + pattern + "' OR " +
-		                       BookmarkDB.DB_KEY_BOOKMARK_HOSTNAME + " = '" + pattern + "'",
-		                   BookmarkDB.DB_KEY_BOOKMARK_LABEL);
-		BookmarkBase bookmark = null;
-		if (cursor.moveToFirst() && (cursor.getCount() > 0))
-			bookmark = getBookmarkFromCursor(cursor);
-
-		cursor.close();
-		return bookmark;
+		dao.deleteById(id);
+		return true;
 	}
 
 	public ArrayList<BookmarkBase> findByLabelOrHostnameLike(String pattern)
 	{
-		Cursor cursor =
-		    queryBookmarks(BookmarkDB.DB_KEY_BOOKMARK_LABEL + " LIKE '%" + pattern + "%' OR " +
-		                       BookmarkDB.DB_KEY_BOOKMARK_HOSTNAME + " LIKE '%" + pattern + "%'",
-		                   BookmarkDB.DB_KEY_BOOKMARK_LABEL);
-		ArrayList<BookmarkBase> bookmarks = new ArrayList<>(cursor.getCount());
-
-		if (cursor.moveToFirst() && (cursor.getCount() > 0))
-		{
-			do
-			{
-				bookmarks.add(getBookmarkFromCursor(cursor));
-			} while (cursor.moveToNext());
-		}
-
-		cursor.close();
-		return bookmarks;
-	}
-
-	private void readGatewaySettings(ManualBookmark bookmark, Cursor cursor)
-	{
-		ManualBookmark.GatewaySettings gatewaySettings = bookmark.getGatewaySettings();
-		gatewaySettings.setHostname(
-		    cursor.getString(cursor.getColumnIndex(BookmarkDB.DB_KEY_BOOKMARK_GW_HOSTNAME)));
-		gatewaySettings.setPort(
-		    cursor.getInt(cursor.getColumnIndex(BookmarkDB.DB_KEY_BOOKMARK_GW_PORT)));
-		gatewaySettings.setUsername(
-		    cursor.getString(cursor.getColumnIndex(BookmarkDB.DB_KEY_BOOKMARK_GW_USERNAME)));
-		gatewaySettings.setPassword(
-		    cursor.getString(cursor.getColumnIndex(BookmarkDB.DB_KEY_BOOKMARK_GW_PASSWORD)));
-		gatewaySettings.setDomain(
-		    cursor.getString(cursor.getColumnIndex(BookmarkDB.DB_KEY_BOOKMARK_GW_DOMAIN)));
+		List<BookmarkEntity> entities = dao.search("%" + pattern + "%");
+		ArrayList<BookmarkBase> result = new ArrayList<>(entities.size());
+		for (BookmarkEntity e : entities)
+			result.add(BookmarkConverter.toBookmark(e));
+		return result;
 	}
 }

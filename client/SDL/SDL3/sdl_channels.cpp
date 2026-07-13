@@ -24,6 +24,7 @@
 #include <freerdp/client/rail.h>
 #include <freerdp/client/cliprdr.h>
 #include <freerdp/client/disp.h>
+#include <freerdp/channels/rdpewa.h>
 
 #include "sdl_channels.hpp"
 #include "sdl_context.hpp"
@@ -90,4 +91,45 @@ void sdl_OnChannelDisconnectedEventHandler(void* context, const ChannelDisconnec
 	}
 	else
 		freerdp_client_OnChannelDisconnectedEventHandler(context, e);
+}
+
+void sdl_OnUserNotificationEventHandler(void* context, const UserNotificationEventArgs* e)
+{
+	WINPR_UNUSED(context);
+	WINPR_ASSERT(e);
+	WINPR_ASSERT(e->e.Sender);
+
+	if (strcmp(e->e.Sender, RDPEWA_CHANNEL_NAME) != 0)
+		return;
+
+	if (e->cancelPreviousNotification)
+		return;
+
+	struct userdata
+	{
+		std::string sender;
+		std::string message;
+		uint32_t timeoutMS = 0;
+	};
+
+	auto ud = new struct userdata;
+	if (e->message)
+		ud->message = e->message;
+	if (e->e.Sender)
+		ud->sender = e->e.Sender;
+	ud->timeoutMS = e->timeoutMS;
+
+	SDL_RunOnMainThread(
+	    [](void* userdata)
+	    {
+		    auto ed = static_cast<struct userdata*>(userdata);
+		    assert(ed);
+		    auto parent = SDL_GetMouseFocus();
+		    if (!parent)
+			    parent = SDL_GetKeyboardFocus();
+		    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, ed->sender.c_str(),
+		                             ed->message.c_str(), parent);
+		    delete ed;
+	    },
+	    ud, false);
 }

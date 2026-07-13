@@ -22,6 +22,8 @@ include_directories(..)
 
 set(${MODULE_PREFIX}_SRCS wfreerdp.c wfreerdp.h ../resource/wfreerdp.rc)
 
+add_win_console_manifest(${MODULE_PREFIX}_SRCS)
+
 addtargetwithresourcefile(${MODULE_NAME} "${WIN32_GUI_FLAG}" "${FREERDP_VERSION}" ${MODULE_PREFIX}_SRCS)
 
 set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} wfreerdp-client)

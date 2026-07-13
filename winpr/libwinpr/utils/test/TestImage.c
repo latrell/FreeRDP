@@ -22,7 +22,7 @@ static BOOL test_equal_to(const wImage* bmp, const char* name, UINT32 format)
 	if (!cmp)
 		goto fail;
 
-	char path[MAX_PATH] = { 0 };
+	char path[MAX_PATH] = WINPR_C_ARRAY_INIT;
 	(void)_snprintf(path, sizeof(path), "%s.%s", name, winpr_image_format_extension(format));
 	const int cmpSize = winpr_image_read(cmp, path);
 	if (cmpSize <= 0)
@@ -48,7 +48,7 @@ static BOOL test_equal(void)
 	if (!bmp)
 		goto fail;
 
-	char path[MAX_PATH] = { 0 };
+	char path[MAX_PATH] = WINPR_C_ARRAY_INIT;
 	(void)_snprintf(path, sizeof(path), "%s.bmp", test_src_filename);
 	PathCchConvertStyleA(path, sizeof(path), PATH_STYLE_NATIVE);
 
@@ -83,10 +83,10 @@ static BOOL test_read_write_compare(const char* tname, const char* tdst, UINT32 
 	if (!bmp1 || !bmp2 || !bmp3)
 		goto fail;
 
-	char spath[MAX_PATH] = { 0 };
-	char dpath[MAX_PATH] = { 0 };
-	char bpath1[MAX_PATH] = { 0 };
-	char bpath2[MAX_PATH] = { 0 };
+	char spath[MAX_PATH] = WINPR_C_ARRAY_INIT;
+	char dpath[MAX_PATH] = WINPR_C_ARRAY_INIT;
+	char bpath1[MAX_PATH] = WINPR_C_ARRAY_INIT;
+	char bpath2[MAX_PATH] = WINPR_C_ARRAY_INIT;
 	(void)_snprintf(spath, sizeof(spath), "%s.%s", tname, winpr_image_format_extension(format));
 	(void)_snprintf(dpath, sizeof(dpath), "%s.%s", tdst, winpr_image_format_extension(format));
 	(void)_snprintf(bpath1, sizeof(bpath1), "%s.src.%s", dpath,
@@ -183,9 +183,79 @@ static BOOL test_load_file(const char* name)
 		goto fail;
 
 	const int res = winpr_image_read(image, name);
-	rc = (res > 0) ? TRUE : FALSE;
+	rc = (res > 0);
 
 fail:
+	winpr_image_free(image, TRUE);
+	return rc;
+}
+
+static void put_u16(BYTE* p, UINT16 v)
+{
+	p[0] = (BYTE)(v & 0xff);
+	p[1] = (BYTE)((v >> 8) & 0xff);
+}
+
+static void put_u32(BYTE* p, UINT32 v)
+{
+	p[0] = (BYTE)(v & 0xff);
+	p[1] = (BYTE)((v >> 8) & 0xff);
+	p[2] = (BYTE)((v >> 16) & 0xff);
+	p[3] = (BYTE)((v >> 24) & 0xff);
+}
+
+/* A 24bpp BMP whose biSizeImage carries the unaligned image size
+ * (width * bytesPerPixel * height) selects the unaligned read path. The decoder
+ * must not consume more than biSizeImage bytes from the input buffer. The buffer
+ * here is allocated to the exact BMP size, so any over-read is detectable. */
+static BOOL test_unaligned_no_overread(void)
+{
+	BOOL rc = FALSE;
+	const UINT32 width = 1;
+	const UINT32 height = 10;
+	const UINT32 bpp = 3;
+	const UINT32 uscanline = width * bpp;          /* 3, not a multiple of 4 */
+	const UINT32 biSizeImage = uscanline * height; /* 30 */
+	const size_t offBits = 54;                     /* 14 + 40 */
+	const size_t size = offBits + biSizeImage;     /* 84 */
+
+	wImage* image = winpr_image_new();
+	BYTE* bmp = (BYTE*)calloc(1, size);
+	if (!image || !bmp)
+		goto fail;
+
+	bmp[0] = 'B';
+	bmp[1] = 'M';
+	put_u32(&bmp[2], (UINT32)size);              /* bfSize */
+	put_u32(&bmp[10], (UINT32)offBits);          /* bfOffBits */
+	put_u32(&bmp[14], 40);                       /* biSize */
+	put_u32(&bmp[18], width);                    /* biWidth */
+	put_u32(&bmp[22], (UINT32)(-(INT32)height)); /* biHeight, top-down */
+	put_u16(&bmp[26], 1);                        /* biPlanes */
+	put_u16(&bmp[28], 24);                       /* biBitCount */
+	put_u32(&bmp[30], 0);                        /* biCompression BI_RGB */
+	put_u32(&bmp[34], biSizeImage);              /* biSizeImage */
+	for (UINT32 i = 0; i < biSizeImage; i++)
+		bmp[offBits + i] = (BYTE)i;
+
+	if (winpr_image_read_buffer(image, bmp, size) <= 0)
+		goto fail;
+
+	if ((image->width != width) || (image->height != height))
+		goto fail;
+
+	for (UINT32 row = 0; row < height; row++)
+	{
+		for (UINT32 b = 0; b < uscanline; b++)
+		{
+			if (image->data[1ULL * row * image->scanline + b] != (BYTE)(row * uscanline + b))
+				goto fail;
+		}
+	}
+
+	rc = TRUE;
+fail:
+	free(bmp);
 	winpr_image_free(image, TRUE);
 	return rc;
 }
@@ -227,6 +297,9 @@ int TestImage(int argc, char* argv[])
 
 	if (!test_load())
 		rc -= 4;
+
+	if (!test_unaligned_no_overread())
+		rc -= 8;
 
 	return rc;
 }

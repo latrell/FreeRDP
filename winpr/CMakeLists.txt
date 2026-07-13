@@ -49,6 +49,33 @@ if(NOT FREERDP_UNIFIED_BUILD)
 
   # MSVC compatibility with system headers
   add_compile_definitions(NONAMELESSUNION)
+
+  set(OPENSSL_FEATURE_TYPE "RECOMMENDED")
+  set(OPENSSL_FEATURE_PURPOSE "cryptography")
+  set(OPENSSL_FEATURE_DESCRIPTION "encryption, certificate validation, hashing functions")
+
+  set(MBEDTLS_FEATURE_TYPE "OPTIONAL")
+  set(MBEDTLS_FEATURE_PURPOSE "cryptography")
+  set(MBEDTLS_FEATURE_DESCRIPTION "encryption, certificate validation, hashing functions")
+
+  option(WITH_LIBRESSL "build with LibreSSL" OFF)
+  if(WITH_LIBRESSL)
+    include(WarnExperimental)
+    warn_experimental("LibReSSL" "-DWITH_LIBRESSL=OFF")
+
+    find_package(LibreSSL REQUIRED)
+    set(OPENSSL_INCLUDE_DIR ${LIBRESSL_INCLUDE_DIR})
+    set(OPENSSL_LIBRARIES ${LIBRESSL_LIBRARIES})
+    set(OPENSSL_CRYPTO_LIBRARIES ${LIBRESSL_LIBRARIES})
+    set(WITH_OPENSSL ON)
+    set(OPENSSL_FOUND ON)
+    add_compile_definitions("WITH_LIBRESSL")
+    add_compile_definitions("WITH_OPENSSL")
+  else()
+    find_feature(OpenSSL ${OPENSSL_FEATURE_TYPE} ${OPENSSL_FEATURE_PURPOSE} ${OPENSSL_FEATURE_DESCRIPTION})
+    find_feature(MbedTLS ${MBEDTLS_FEATURE_TYPE} ${MBEDTLS_FEATURE_PURPOSE} ${MBEDTLS_FEATURE_DESCRIPTION})
+  endif()
+
 endif()
 
 set(WINPR_PC_REQUIRES_PRIVATE "" CACHE INTERNAL "dependencies")
@@ -81,6 +108,7 @@ endif()
 
 option(WITH_WINPR_TOOLS "Build WinPR helper binaries" ${TOOLS_DEFAULT})
 option(WITH_WINPR_DEPRECATED "Build WinPR deprecated symbols" OFF)
+option(WITHOUT_WINPR_3x_DEPRECATED "Build without symbols deprecated during 3.x version" OFF)
 option(WITH_DEBUG_THREADS "Print thread debug messages, enables handle dump" ${DEFAULT_DEBUG_OPTION})
 option(WITH_DEBUG_EVENTS "Print event debug messages, enables handle dump" ${DEFAULT_DEBUG_OPTION})
 option(WITH_DEBUG_SYMBOLS "Pack debug symbols to installer" OFF)
@@ -115,6 +143,10 @@ endif()
 
 if(WITH_WINPR_DEPRECATED)
   add_compile_definitions(WITH_WINPR_DEPRECATED)
+endif()
+
+if(WITHOUT_WINPR_3x_DEPRECATED)
+  add_compile_definitions(WITHOUT_WINPR_3x_DEPRECATED)
 endif()
 
 # Include cmake modules
@@ -177,6 +209,7 @@ check_type_size(SSIZE_T WIN_SSIZE_T)
 set(WINPR_HAVE_SSIZE_T ${HAVE_SSIZE_T})
 set(WINPR_HAVE_WIN_SSIZE_T ${HAVE_WIN_SSIZE_T})
 
+check_symbol_exists(strnstr string.h WINPR_HAVE_STRNSTR)
 check_symbol_exists(strndup string.h WINPR_HAVE_STRNDUP)
 check_include_files(unistd.h WINPR_HAVE_UNISTD_H)
 check_include_files(execinfo.h WINPR_HAVE_EXECINFO_HEADER)
@@ -271,29 +304,6 @@ if(NOT WIN32 AND NOT IOS)
         OR WINPR_HAVE_PTHREAD_MUTEX_TIMEDLOCK_LIBS
   )
   list(REMOVE_ITEM CMAKE_REQUIRED_LIBRARIES pthread)
-endif()
-
-set(OPENSSL_FEATURE_TYPE "RECOMMENDED")
-set(OPENSSL_FEATURE_PURPOSE "cryptography")
-set(OPENSSL_FEATURE_DESCRIPTION "encryption, certificate validation, hashing functions")
-
-set(MBEDTLS_FEATURE_TYPE "OPTIONAL")
-set(MBEDTLS_FEATURE_PURPOSE "cryptography")
-set(MBEDTLS_FEATURE_DESCRIPTION "encryption, certificate validation, hashing functions")
-
-option(WITH_LIBRESSL "build with LibreSSL" OFF)
-if(WITH_LIBRESSL)
-  find_package(LibreSSL REQUIRED)
-  set(OPENSSL_INCLUDE_DIR ${LIBRESSL_INCLUDE_DIR})
-  set(OPENSSL_LIBRARIES ${LIBRESSL_LIBRARIES})
-  set(OPENSSL_CRYPTO_LIBRARIES ${LIBRESSL_LIBRARIES})
-  set(WITH_OPENSSL ON)
-  set(OPENSSL_FOUND ON)
-  add_compile_definitions("WITH_LIBRESSL")
-  add_compile_definitions("WITH_OPENSSL")
-else()
-  find_feature(OpenSSL ${OPENSSL_FEATURE_TYPE} ${OPENSSL_FEATURE_PURPOSE} ${OPENSSL_FEATURE_DESCRIPTION})
-  find_feature(MbedTLS ${MBEDTLS_FEATURE_TYPE} ${MBEDTLS_FEATURE_PURPOSE} ${MBEDTLS_FEATURE_DESCRIPTION})
 endif()
 
 if(NOT OPENSSL_FOUND AND NOT MBEDTLS_FOUND AND NOT LibreSSL_FOUND)

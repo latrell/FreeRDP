@@ -12,7 +12,7 @@ package com.freerdp.freerdpcore.utils;
 
 import android.content.Context;
 import android.content.res.TypedArray;
-import android.preference.EditTextPreference;
+import androidx.preference.EditTextPreference;
 import android.util.AttributeSet;
 
 import com.freerdp.freerdpcore.R;
@@ -81,21 +81,27 @@ public class IntEditTextPreference extends EditTextPreference
 		return persistInt(Integer.parseInt(value));
 	}
 
-	@Override protected void onDialogClosed(boolean positiveResult)
+	@Override public void setText(String text)
 	{
-		if (positiveResult)
-		{
-			// prevent exception when an empty value is persisted
-			if (getEditText().getText().length() == 0)
-				getEditText().setText("0");
+		String valueToSave = getText();
 
-			// check bounds
-			int value = Integer.parseInt(getEditText().getText().toString());
-			if (value > bounds_max || value < bounds_min)
-				value = bounds_default;
-			getEditText().setText(String.valueOf(value));
+		try
+		{
+			int parsed = Integer.parseInt(text);
+			if (parsed >= bounds_min && parsed <= bounds_max)
+			{
+				valueToSave = text;
+			}
+		}
+		catch (Exception ignored)
+		{
 		}
 
-		super.onDialogClosed(positiveResult);
+		if (valueToSave == null)
+		{
+			valueToSave = String.valueOf(bounds_default);
+		}
+
+		super.setText(valueToSave);
 	}
 }

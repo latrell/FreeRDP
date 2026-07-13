@@ -28,10 +28,16 @@ BOOL android_push_event(freerdp* inst, ANDROID_EVENT* event)
 
 	if (aCtx->event_queue->count >= aCtx->event_queue->size)
 	{
-		int new_size;
-		void* new_events;
-		new_size = aCtx->event_queue->size * 2;
-		new_events = realloc((void*)aCtx->event_queue->events, sizeof(ANDROID_EVENT*) * new_size);
+		size_t new_size = aCtx->event_queue->size;
+		do
+		{
+			if (new_size >= SIZE_MAX - 128ull)
+				return FALSE;
+
+			new_size += 128ull;
+		} while (new_size <= aCtx->event_queue->count);
+		void* new_events =
+		    realloc((void*)aCtx->event_queue->events, sizeof(ANDROID_EVENT*) * new_size);
 
 		if (!new_events)
 			return FALSE;
@@ -49,7 +55,7 @@ static ANDROID_EVENT* android_peek_event(ANDROID_EVENT_QUEUE* queue)
 	ANDROID_EVENT* event;
 
 	if (queue->count < 1)
-		return NULL;
+		return nullptr;
 
 	event = queue->events[0];
 	return event;
@@ -60,7 +66,7 @@ static ANDROID_EVENT* android_pop_event(ANDROID_EVENT_QUEUE* queue)
 	ANDROID_EVENT* event;
 
 	if (queue->count < 1)
-		return NULL;
+		return nullptr;
 
 	event = queue->events[0];
 	(queue->count)--;
@@ -123,7 +129,8 @@ static BOOL android_process_event(ANDROID_EVENT_QUEUE* queue, freerdp* inst)
 			case EVENT_TYPE_CLIPBOARD:
 			{
 				ANDROID_EVENT_CLIPBOARD* clipboard_event = (ANDROID_EVENT_CLIPBOARD*)event;
-				UINT32 formatId = ClipboardRegisterFormat(afc->clipboard, "text/plain");
+				const char* mimeType = clipboard_event->mimeType;
+				UINT32 formatId = ClipboardRegisterFormat(afc->clipboard, mimeType);
 				UINT32 size = clipboard_event->data_length;
 
 				if (size)
@@ -154,12 +161,12 @@ HANDLE android_get_handle(freerdp* inst)
 	androidContext* aCtx;
 
 	if (!inst || !inst->context)
-		return NULL;
+		return nullptr;
 
 	aCtx = (androidContext*)inst->context;
 
 	if (!aCtx->event_queue || !aCtx->event_queue->isSet)
-		return NULL;
+		return nullptr;
 
 	return aCtx->event_queue->isSet;
 }
@@ -193,7 +200,7 @@ ANDROID_EVENT_KEY* android_event_key_new(int flags, UINT16 scancode)
 	ANDROID_EVENT_KEY* event = (ANDROID_EVENT_KEY*)calloc(1, sizeof(ANDROID_EVENT_KEY));
 
 	if (!event)
-		return NULL;
+		return nullptr;
 
 	event->type = EVENT_TYPE_KEY;
 	event->flags = flags;
@@ -212,7 +219,7 @@ ANDROID_EVENT_KEY* android_event_unicodekey_new(UINT16 flags, UINT16 key)
 	event = (ANDROID_EVENT_KEY*)calloc(1, sizeof(ANDROID_EVENT_KEY));
 
 	if (!event)
-		return NULL;
+		return nullptr;
 
 	event->type = EVENT_TYPE_KEY_UNICODE;
 	event->flags = flags;
@@ -231,7 +238,7 @@ ANDROID_EVENT_CURSOR* android_event_cursor_new(UINT16 flags, UINT16 x, UINT16 y)
 	event = (ANDROID_EVENT_CURSOR*)calloc(1, sizeof(ANDROID_EVENT_CURSOR));
 
 	if (!event)
-		return NULL;
+		return nullptr;
 
 	event->type = EVENT_TYPE_CURSOR;
 	event->x = x;
@@ -251,7 +258,7 @@ ANDROID_EVENT* android_event_disconnect_new(void)
 	event = (ANDROID_EVENT*)calloc(1, sizeof(ANDROID_EVENT));
 
 	if (!event)
-		return NULL;
+		return nullptr;
 
 	event->type = EVENT_TYPE_DISCONNECT;
 	return event;
@@ -262,28 +269,39 @@ static void android_event_disconnect_free(ANDROID_EVENT* event)
 	free(event);
 }
 
-ANDROID_EVENT_CLIPBOARD* android_event_clipboard_new(const void* data, size_t data_length)
+ANDROID_EVENT_CLIPBOARD* android_event_clipboard_new(const void* data, size_t data_length,
+                                                     const char* mimeType)
 {
 	ANDROID_EVENT_CLIPBOARD* event;
 	event = (ANDROID_EVENT_CLIPBOARD*)calloc(1, sizeof(ANDROID_EVENT_CLIPBOARD));
 
 	if (!event)
-		return NULL;
+		return nullptr;
 
 	event->type = EVENT_TYPE_CLIPBOARD;
+	event->mimeType = mimeType ? _strdup(mimeType) : nullptr;
 
-	if (data)
+	if (mimeType && !event->mimeType)
 	{
-		event->data = calloc(data_length + 1, sizeof(char));
+		free(event);
+		return nullptr;
+	}
+
+	if (data && data_length > 0)
+	{
+		const BOOL isText = !mimeType || strcmp(mimeType, "text/plain") == 0;
+		/* Text data needs a null terminator; image data is stored as-is. */
+		event->data = isText ? calloc(data_length + 1, sizeof(char)) : malloc(data_length);
 
 		if (!event->data)
 		{
+			free(event->mimeType);
 			free(event);
-			return NULL;
+			return nullptr;
 		}
 
 		memcpy(event->data, data, data_length);
-		event->data_length = data_length + 1;
+		event->data_length = isText ? data_length + 1 : data_length;
 	}
 
 	return event;
@@ -294,6 +312,7 @@ static void android_event_clipboard_free(ANDROID_EVENT_CLIPBOARD* event)
 	if (event)
 	{
 		free(event->data);
+		free(event->mimeType);
 		free(event);
 	}
 }
@@ -312,7 +331,7 @@ BOOL android_event_queue_init(freerdp* inst)
 
 	queue->size = 16;
 	queue->count = 0;
-	queue->isSet = CreateEventA(NULL, TRUE, FALSE, NULL);
+	queue->isSet = CreateEventA(nullptr, TRUE, FALSE, nullptr);
 
 	if (!queue->isSet)
 	{
@@ -350,13 +369,13 @@ void android_event_queue_uninit(freerdp* inst)
 		if (queue->isSet)
 		{
 			(void)CloseHandle(queue->isSet);
-			queue->isSet = NULL;
+			queue->isSet = nullptr;
 		}
 
 		if (queue->events)
 		{
 			free(queue->events);
-			queue->events = NULL;
+			queue->events = nullptr;
 			queue->size = 0;
 			queue->count = 0;
 		}

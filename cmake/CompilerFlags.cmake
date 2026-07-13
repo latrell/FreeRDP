@@ -27,6 +27,9 @@ if(ENABLE_WARNING_VERBOSE)
 endif()
 
 list(APPEND COMMON_COMPILER_FLAGS -Wimplicit-function-declaration)
+if(NOT OHOS)
+  list(APPEND COMMON_COMPILER_FLAGS -Wno-jump-misses-init -Wno-c++-keyword)
+endif()
 
 foreach(FLAG ${COMMON_COMPILER_FLAGS})
   checkcflag(${FLAG})

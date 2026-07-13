@@ -25,7 +25,6 @@ import android.content.Context;
 import android.graphics.Rect;
 import android.util.AttributeSet;
 import android.view.FocusFinder;
-import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
@@ -36,6 +35,8 @@ import android.view.animation.AnimationUtils;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.Scroller;
+
+import com.freerdp.freerdpcore.R;
 import android.widget.TextView;
 
 import java.util.List;
@@ -266,92 +267,6 @@ public class ScrollView2D extends FrameLayout
 			    (getWidth() < childWidth + getPaddingLeft() + getPaddingRight());
 		}
 		return false;
-	}
-
-	@Override public boolean dispatchKeyEvent(KeyEvent event)
-	{
-		// Let the focused view and/or our descendants get the key first
-		boolean handled = super.dispatchKeyEvent(event);
-		if (handled)
-		{
-			return true;
-		}
-		return executeKeyEvent(event);
-	}
-
-	/**
-	 * You can call this function yourself to have the scroll view perform
-	 * scrolling from a key event, just as if the event had been dispatched to
-	 * it by the view hierarchy.
-	 *
-	 * @param event The key event to execute.
-	 * @return Return true if the event was handled, else false.
-	 */
-	public boolean executeKeyEvent(KeyEvent event)
-	{
-		mTempRect.setEmpty();
-		if (!canScroll())
-		{
-			if (isFocused())
-			{
-				View currentFocused = findFocus();
-				if (currentFocused == this)
-					currentFocused = null;
-				View nextFocused =
-				    FocusFinder.getInstance().findNextFocus(this, currentFocused, View.FOCUS_DOWN);
-				return nextFocused != null && nextFocused != this &&
-				    nextFocused.requestFocus(View.FOCUS_DOWN);
-			}
-			return false;
-		}
-		boolean handled = false;
-		if (event.getAction() == KeyEvent.ACTION_DOWN)
-		{
-			switch (event.getKeyCode())
-			{
-				case KeyEvent.KEYCODE_DPAD_UP:
-					if (!event.isAltPressed())
-					{
-						handled = arrowScroll(View.FOCUS_UP, false);
-					}
-					else
-					{
-						handled = fullScroll(View.FOCUS_UP, false);
-					}
-					break;
-				case KeyEvent.KEYCODE_DPAD_DOWN:
-					if (!event.isAltPressed())
-					{
-						handled = arrowScroll(View.FOCUS_DOWN, false);
-					}
-					else
-					{
-						handled = fullScroll(View.FOCUS_DOWN, false);
-					}
-					break;
-				case KeyEvent.KEYCODE_DPAD_LEFT:
-					if (!event.isAltPressed())
-					{
-						handled = arrowScroll(View.FOCUS_LEFT, true);
-					}
-					else
-					{
-						handled = fullScroll(View.FOCUS_LEFT, true);
-					}
-					break;
-				case KeyEvent.KEYCODE_DPAD_RIGHT:
-					if (!event.isAltPressed())
-					{
-						handled = arrowScroll(View.FOCUS_RIGHT, true);
-					}
-					else
-					{
-						handled = fullScroll(View.FOCUS_RIGHT, true);
-					}
-					break;
-			}
-		}
-		return handled;
 	}
 
 	@Override public boolean onInterceptTouchEvent(MotionEvent ev)
@@ -1187,6 +1102,9 @@ public class ScrollView2D extends FrameLayout
 		super.requestLayout();
 	}
 
+	private int lastCenterContentH = -1;
+	private int lastCenterTop = 0;
+
 	@Override protected void onLayout(boolean changed, int l, int t, int r, int b)
 	{
 		super.onLayout(changed, l, t, r, b);
@@ -1198,7 +1116,36 @@ public class ScrollView2D extends FrameLayout
 		}
 		mChildToScrollTo = null;
 
-		// Calling this with the present values causes it to re-clam them
+		// Center the content area (excluding touch-pointer padding) within the viewport.
+		// This keeps the RDP surface visually centered regardless of pointer padding changes.
+		if (getChildCount() > 0)
+		{
+			View child = getChildAt(0);
+			SessionView sv = findViewById(R.id.sessionView);
+			int ptw = sv != null ? sv.getTouchPointerPaddingWidth() : 0;
+			int pth = sv != null ? sv.getTouchPointerPaddingHeight() : 0;
+			int contentW = child.getMeasuredWidth() - ptw;
+			int contentH = child.getMeasuredHeight() - pth;
+			int usableW = getWidth() - getPaddingLeft() - getPaddingRight();
+			int usableH = getHeight() - getPaddingTop() - getPaddingBottom();
+			int left = getPaddingLeft() + Math.max(0, (usableW - contentW) / 2);
+			int top;
+			if (contentH == lastCenterContentH)
+			{
+				// viewport-only change (e.g. keyboard): keep position, don't re-center
+				top = lastCenterTop;
+			}
+			else
+			{
+				top = getPaddingTop() + Math.max(0, (usableH - contentH) / 2);
+				lastCenterContentH = contentH;
+				lastCenterTop = top;
+			}
+			child.layout(left, top, left + child.getMeasuredWidth(),
+			             top + child.getMeasuredHeight());
+		}
+
+		// Calling this with the present values causes it to re-clamp them
 		scrollTo(getScrollX(), getScrollY());
 	}
 

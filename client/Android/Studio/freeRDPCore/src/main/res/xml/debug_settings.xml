@@ -18,13 +18,15 @@
 	limitations under the License.
 */
  -->
-<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
     <PreferenceCategory android:title="@string/settings_debug">
         <ListPreference
             android:entries="@array/debug_array"
             android:entryValues="@array/debug_values_array"
             android:key="bookmark.debug_level"
-            android:title="@string/debug_level" />
+            android:title="@string/debug_level"
+            app:useSimpleSummaryProvider="true" />
         <CheckBoxPreference
             android:key="bookmark.async_channel"
             android:title="@string/settings_async_channel" />

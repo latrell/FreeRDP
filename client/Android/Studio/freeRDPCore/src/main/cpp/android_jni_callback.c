@@ -74,7 +74,7 @@ jboolean jni_attach_thread(JNIEnv** env)
 	if ((*jVM)->GetEnv(jVM, (void**)env, JNI_VERSION_1_4) != JNI_OK)
 	{
 		WLog_DBG(TAG, "android_java_callback: attaching current thread");
-		(*jVM)->AttachCurrentThread(jVM, env, NULL);
+		(*jVM)->AttachCurrentThread(jVM, env, nullptr);
 
 		if ((*jVM)->GetEnv(jVM, (void**)env, JNI_VERSION_1_4) != JNI_OK)
 		{
@@ -201,7 +201,7 @@ finish:
 /* callback to freerdp class */
 void freerdp_callback(const char* callback, const char* signature, ...)
 {
-	va_list vl;
+	va_list vl = WINPR_C_ARRAY_INIT;
 	va_start(vl, signature);
 	java_callback_void(jLibFreeRDPObject, callback, signature, vl);
 	va_end(vl);
@@ -209,7 +209,7 @@ void freerdp_callback(const char* callback, const char* signature, ...)
 
 jboolean freerdp_callback_bool_result(const char* callback, const char* signature, ...)
 {
-	va_list vl;
+	va_list vl = WINPR_C_ARRAY_INIT;
 	va_start(vl, signature);
 	jboolean res = java_callback_bool(jLibFreeRDPObject, callback, signature, vl);
 	va_end(vl);
@@ -218,7 +218,7 @@ jboolean freerdp_callback_bool_result(const char* callback, const char* signatur
 
 jint freerdp_callback_int_result(const char* callback, const char* signature, ...)
 {
-	va_list vl;
+	va_list vl = WINPR_C_ARRAY_INIT;
 	va_start(vl, signature);
 	jint res = java_callback_int(jLibFreeRDPObject, callback, signature, vl);
 	va_end(vl);

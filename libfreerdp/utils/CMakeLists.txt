@@ -19,6 +19,7 @@ set(MODULE_NAME "freerdp-utils")
 set(MODULE_PREFIX "FREERDP_UTILS")
 
 set(${MODULE_PREFIX}_SRCS
+    channel_pdu_tracker.c
     encoded_types.c
     helpers.c
     passphrase.c
@@ -26,7 +27,9 @@ set(${MODULE_PREFIX}_SRCS
     rdpdr_utils.c
     pcap.c
     profiler.c
+    warnings.c
     ringbuffer.c
+    platform_signal.h
     signal.c
     string.c
     gfx.c
@@ -38,6 +41,12 @@ set(${MODULE_PREFIX}_SRCS
     stopwatch.c
     http.c
 )
+
+if(WIN32)
+  list(APPEND ${MODULE_PREFIX}_SRCS signal_win32.c)
+else()
+  list(APPEND ${MODULE_PREFIX}_SRCS signal_posix.c)
+endif()
 
 freerdp_module_add(${${MODULE_PREFIX}_SRCS})
 

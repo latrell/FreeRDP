@@ -11,19 +11,21 @@
 package com.freerdp.freerdpcore.application;
 
 import android.app.Application;
+import androidx.appcompat.app.AppCompatDelegate;
+import androidx.core.content.ContextCompat;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import com.freerdp.freerdpcore.domain.BookmarkBase;
 import com.freerdp.freerdpcore.presentation.ApplicationSettingsActivity;
-import com.freerdp.freerdpcore.services.BookmarkDB;
-import com.freerdp.freerdpcore.services.HistoryDB;
+import com.freerdp.freerdpcore.presentation.PrintJobMonitor;
+import com.freerdp.freerdpcore.presentation.PrintNotificationHelper;
 import com.freerdp.freerdpcore.services.LibFreeRDP;
-import com.freerdp.freerdpcore.services.ManualBookmarkGateway;
-import com.freerdp.freerdpcore.services.QuickConnectHistoryGateway;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -32,39 +34,47 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 public class GlobalApp extends Application implements LibFreeRDP.EventListener
 {
-	// event notification defines
-	public static final String EVENT_TYPE = "EVENT_TYPE";
-	public static final String EVENT_PARAM = "EVENT_PARAM";
-	public static final String EVENT_STATUS = "EVENT_STATUS";
-	public static final String EVENT_ERROR = "EVENT_ERROR";
-	public static final String ACTION_EVENT_FREERDP = "com.freerdp.freerdp.event.freerdp";
-	public static final int FREERDP_EVENT_CONNECTION_SUCCESS = 1;
-	public static final int FREERDP_EVENT_CONNECTION_FAILURE = 2;
-	public static final int FREERDP_EVENT_DISCONNECTED = 3;
 	private static final String TAG = "GlobalApp";
-	public static boolean ConnectedTo3G = false;
 	private static Map<Long, SessionState> sessionMap;
-	private static BookmarkDB bookmarkDB;
-	private static ManualBookmarkGateway manualBookmarkGateway;
+	private PrintJobMonitor printJobMonitor;
 
-	private static HistoryDB historyDB;
-	private static QuickConnectHistoryGateway quickConnectHistoryGateway;
+	/** Per-session connection event listener. Callbacks are invoked on the main thread. */
+	public interface SessionEventListener
+	{
+		void onConnectionSuccess();
+		void onConnectionFailure();
+		void onDisconnected();
+	}
+
+	private static final Map<Long, SessionEventListener> sessionListeners =
+	    new ConcurrentHashMap<>();
+	private static final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+	public static void registerSessionListener(long instance, SessionEventListener listener)
+	{
+		sessionListeners.put(instance, listener);
+	}
+
+	public static void unregisterSessionListener(long instance)
+	{
+		sessionListeners.remove(instance);
+	}
+
+	private void dispatch(long instance, Consumer<SessionEventListener> action)
+	{
+		final SessionEventListener listener = sessionListeners.get(instance);
+		if (listener == null)
+			return;
+		mainHandler.post(() -> action.accept(listener));
+	}
 
 	// timer for disconnecting sessions after the screen was turned off
 	private static Timer disconnectTimer = null;
-
-	public static ManualBookmarkGateway getManualBookmarkGateway()
-	{
-		return manualBookmarkGateway;
-	}
-
-	public static QuickConnectHistoryGateway getQuickConnectHistoryGateway()
-	{
-		return quickConnectHistoryGateway;
-	}
 
 	// Disconnect handling for Screen on/off events
 	public void startDisconnectTimer()
@@ -130,37 +140,24 @@ public class GlobalApp extends Application implements LibFreeRDP.EventListener
 
 		/* Initialize preferences. */
 		ApplicationSettingsActivity.get(this);
+		AppCompatDelegate.setDefaultNightMode(ApplicationSettingsActivity.getNightMode(this));
 
 		sessionMap = Collections.synchronizedMap(new HashMap<Long, SessionState>());
 
 		LibFreeRDP.setEventListener(this);
 
-		bookmarkDB = new BookmarkDB(this);
-
-		manualBookmarkGateway = new ManualBookmarkGateway(bookmarkDB);
-
-		historyDB = new HistoryDB(this);
-		quickConnectHistoryGateway = new QuickConnectHistoryGateway(historyDB);
-
-		ConnectedTo3G = NetworkStateReceiver.isConnectedTo3G(this);
+		printJobMonitor = new PrintJobMonitor(file -> PrintNotificationHelper.notify(this, file));
+		printJobMonitor.startWatching();
 
 		// init screen receiver here (this can't be declared in AndroidManifest - refer to:
 		// http://thinkandroid.wordpress.com/2010/01/24/handling-screen-off-and-screen-on-intents/
 		IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_ON);
 		filter.addAction(Intent.ACTION_SCREEN_OFF);
-		registerReceiver(new ScreenReceiver(), filter, RECEIVER_EXPORTED);
+		ContextCompat.registerReceiver(this, new ScreenReceiver(), filter,
+		                               ContextCompat.RECEIVER_EXPORTED);
 	}
 
 	// helper to send FreeRDP notifications
-	private void sendRDPNotification(int type, long param)
-	{
-		// send broadcast
-		Intent intent = new Intent(ACTION_EVENT_FREERDP);
-		intent.putExtra(EVENT_TYPE, type);
-		intent.putExtra(EVENT_PARAM, param);
-		sendBroadcast(intent);
-	}
-
 	@Override public void OnPreConnect(long instance)
 	{
 		Log.v(TAG, "OnPreConnect");
@@ -171,15 +168,13 @@ public class GlobalApp extends Application implements LibFreeRDP.EventListener
 	public void OnConnectionSuccess(long instance)
 	{
 		Log.v(TAG, "OnConnectionSuccess");
-		sendRDPNotification(FREERDP_EVENT_CONNECTION_SUCCESS, instance);
+		dispatch(instance, SessionEventListener::onConnectionSuccess);
 	}
 
 	public void OnConnectionFailure(long instance)
 	{
 		Log.v(TAG, "OnConnectionFailure");
-
-		// send notification to session activity
-		sendRDPNotification(FREERDP_EVENT_CONNECTION_FAILURE, instance);
+		dispatch(instance, SessionEventListener::onConnectionFailure);
 	}
 
 	public void OnDisconnecting(long instance)
@@ -190,7 +185,7 @@ public class GlobalApp extends Application implements LibFreeRDP.EventListener
 	public void OnDisconnected(long instance)
 	{
 		Log.v(TAG, "OnDisconnected");
-		sendRDPNotification(FREERDP_EVENT_DISCONNECTED, instance);
+		dispatch(instance, SessionEventListener::onDisconnected);
 	}
 
 	// TimerTask for disconnecting sessions after screen was turned off

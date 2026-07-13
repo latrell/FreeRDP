@@ -10,10 +10,11 @@
 
 package com.freerdp.freerdpcore.services;
 
-import android.app.Activity;
 import android.app.SearchManager;
 import android.content.Intent;
 import android.os.Bundle;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.freerdp.freerdpcore.domain.ConnectionReference;
@@ -22,6 +23,11 @@ import com.freerdp.freerdpcore.presentation.SessionActivity;
 
 public class SessionRequestHandlerActivity extends AppCompatActivity
 {
+	private final ActivityResultLauncher<Intent> launcher =
+	    registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+		    setResult(result.getResultCode());
+		    finish();
+	    });
 
 	@Override public void onCreate(Bundle savedInstanceState)
 	{
@@ -43,7 +49,7 @@ public class SessionRequestHandlerActivity extends AppCompatActivity
 		Intent sessionIntent = new Intent(this, SessionActivity.class);
 		sessionIntent.putExtras(bundle);
 
-		startActivityForResult(sessionIntent, 0);
+		launcher.launch(sessionIntent);
 	}
 
 	private void editBookmarkWithConnectionReference(String refStr)
@@ -52,7 +58,7 @@ public class SessionRequestHandlerActivity extends AppCompatActivity
 		bundle.putString(BookmarkActivity.PARAM_CONNECTION_REFERENCE, refStr);
 		Intent bookmarkIntent = new Intent(this.getApplicationContext(), BookmarkActivity.class);
 		bookmarkIntent.putExtras(bundle);
-		startActivityForResult(bookmarkIntent, 0);
+		launcher.launch(bookmarkIntent);
 	}
 
 	private void handleIntent(Intent intent)
@@ -66,12 +72,5 @@ public class SessionRequestHandlerActivity extends AppCompatActivity
 			startSessionWithConnectionReference(intent.getDataString());
 		else if (Intent.ACTION_EDIT.equals(action))
 			editBookmarkWithConnectionReference(intent.getDataString());
-	}
-
-	@Override protected void onActivityResult(int requestCode, int resultCode, Intent data)
-	{
-		super.onActivityResult(requestCode, resultCode, data);
-		this.setResult(resultCode);
-		this.finish();
 	}
 }

@@ -25,6 +25,7 @@
 
 #include <winpr/nt.h>
 #include <winpr/crypto.h>
+#include <winpr/sysinfo.h>
 
 #include "../sspi.h"
 
@@ -292,10 +293,17 @@ BOOL ntlm_reset_cipher_state(PSecHandle phContext);
 SECURITY_STATUS ntlm_computeProofValue(NTLM_CONTEXT* ntlm, SecBuffer* ntproof);
 SECURITY_STATUS ntlm_computeMicValue(NTLM_CONTEXT* ntlm, SecBuffer* micvalue);
 
+WINPR_ATTR_NODISCARD
+SECURITY_STATUS ntlm_SetContextWorkstationX(NTLM_CONTEXT* context, BOOL unicode, const void* data,
+                                            size_t length);
+
 #ifdef WITH_DEBUG_NLA
 #define WITH_DEBUG_NTLM
 #endif
 
 BOOL NTLM_init(void);
+
+WINPR_ATTR_MALLOC(free, 1)
+char* get_computer_name(COMPUTER_NAME_FORMAT type, size_t* pSize);
 
 #endif /* WINPR_SSPI_NTLM_PRIVATE_H */

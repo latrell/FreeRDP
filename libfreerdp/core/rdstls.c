@@ -34,6 +34,7 @@
 #include "utils.h"
 
 #define RDSTLS_VERSION_1 0x01
+#define RDSTLS_VERSION_2 0x02
 
 #define RDSTLS_TYPE_CAPABILITIES 0x01
 #define RDSTLS_TYPE_AUTHREQ 0x02
@@ -42,6 +43,7 @@
 #define RDSTLS_DATA_CAPABILITIES 0x01
 #define RDSTLS_DATA_PASSWORD_CREDS 0x01
 #define RDSTLS_DATA_AUTORECONNECT_COOKIE 0x02
+#define RDSTLS_DATA_FEDAUTH_TOKEN 0x03
 #define RDSTLS_DATA_RESULT_CODE 0x01
 
 typedef enum
@@ -120,7 +122,7 @@ rdpRdstls* rdstls_new(rdpContext* context, rdpTransport* transport)
 	rdpRdstls* rdstls = (rdpRdstls*)calloc(1, sizeof(rdpRdstls));
 
 	if (!rdstls)
-		return NULL;
+		return nullptr;
 	rdstls->log = WLog_Get(FREERDP_TAG("core.rdstls"));
 	rdstls->context = context;
 	rdstls->transport = transport;
@@ -248,14 +250,18 @@ static SSIZE_T rdstls_write_string(wStream* s, const char* str)
 		return (SSIZE_T)(Stream_GetPosition(s) - pos);
 	}
 
-	const size_t length = (strlen(str) + 1);
+	const SSIZE_T devNameWLen = ConvertUtf8ToWChar(str, nullptr, 0);
+	if (devNameWLen < 0)
+		return -1;
+	const size_t length = WINPR_ASSERTING_INT_CAST(size_t, devNameWLen) + 1;
+	const size_t slen = strlen(str);
 
 	Stream_Write_UINT16(s, (UINT16)length * sizeof(WCHAR));
 
 	if (!Stream_EnsureRemainingCapacity(s, length * sizeof(WCHAR)))
 		return -1;
 
-	if (Stream_Write_UTF16_String_From_UTF8(s, length, str, length, TRUE) < 0)
+	if (Stream_Write_UTF16_String_From_UTF8(s, length, str, slen, TRUE) < 0)
 		return -1;
 
 	return (SSIZE_T)(Stream_GetPosition(s) - pos);
@@ -347,10 +353,82 @@ static BOOL rdstls_write_authentication_request_with_cookie(WINPR_ATTR_UNUSED rd
 	Stream_Write_UINT16(s, RDSTLS_DATA_AUTORECONNECT_COOKIE);
 	Stream_Write_UINT32(s, settings->RedirectedSessionId);
 
-	if (!rdstls_write_cookie(s, settings->ServerAutoReconnectCookie))
+	return (rdstls_write_cookie(s, settings->ServerAutoReconnectCookie));
+}
+
+/*
+ * Warn if the endpoint FedAuth token targets a different virtual machine
+ * than the VM identifier passed via the .rdp `pcb` field / /pcb command
+ * line switch. The token payload starts with "VMID=<guid>&..."; a
+ * mismatch would be silently rejected by the server later on. This is a
+ * best-effort local sanity check.
+ */
+static void rdstls_check_fedauth_vmid(rdpRdstls* rdstls, const char* token, const char* selectedVm)
+{
+	WINPR_ASSERT(rdstls);
+	WINPR_ASSERT(token);
+
+	if (!selectedVm || !*selectedVm)
+		return;
+
+	const char* vmidField = strstr(token, "VMID=");
+	if (!vmidField)
+		return;
+	vmidField += 5;
+
+	const size_t vmLen = strlen(selectedVm);
+	const BOOL matches = (_strnicmp(vmidField, selectedVm, vmLen) == 0) &&
+	                     (vmidField[vmLen] == '\0' || vmidField[vmLen] == '&');
+	if (!matches)
+	{
+		WLog_Print(rdstls->log, WLOG_WARN,
+		           "endpoint FedAuth token is issued for a different virtual machine "
+		           "than the one selected for connection");
+	}
+}
+
+WINPR_ATTR_NODISCARD
+static BOOL rdstls_write_authentication_request_with_fedauth_token(rdpRdstls* rdstls, wStream* s)
+{
+	WINPR_ASSERT(rdstls);
+	WINPR_ASSERT(rdstls->context);
+
+	WLog_Print(rdstls->log, WLOG_DEBUG, "Writing RDSTLS FedAuth token authentication message");
+
+	const rdpSettings* settings = rdstls->context->settings;
+	WINPR_ASSERT(settings);
+
+	const char* token = freerdp_settings_get_string(settings, FreeRDP_EndpointFedAuthToken);
+	if (!token || !*token)
+	{
+		WLog_Print(rdstls->log, WLOG_ERROR, "EndpointFedAuthToken not set");
+		return FALSE;
+	}
+
+	rdstls_check_fedauth_vmid(rdstls, token,
+	                          freerdp_settings_get_string(settings, FreeRDP_PreconnectionBlob));
+
+	const size_t utf8Length = strlen(token);
+	/* The wire length prefix is a UINT16 counting the token in UTF-16LE
+	 * including a terminating NUL character. */
+	if (utf8Length >= UINT16_MAX / sizeof(WCHAR))
+	{
+		WLog_Print(rdstls->log, WLOG_ERROR,
+		           "EndpointFedAuthToken length %" PRIuz " exceeds RDSTLS wire limit", utf8Length);
+		return FALSE;
+	}
+
+	const size_t wideLength = utf8Length + 1;
+	const size_t wideBytes = wideLength * sizeof(WCHAR);
+
+	if (!Stream_EnsureRemainingCapacity(s, 6 + wideBytes))
 		return FALSE;
 
-	return TRUE;
+	Stream_Write_UINT16(s, RDSTLS_TYPE_AUTHREQ);
+	Stream_Write_UINT16(s, RDSTLS_DATA_FEDAUTH_TOKEN);
+	Stream_Write_UINT16(s, (UINT16)wideBytes);
+
+	return Stream_Write_UTF16_String_From_UTF8(s, wideLength, token, utf8Length, TRUE) >= 0;
 }
 
 static BOOL rdstls_write_authentication_response(rdpRdstls* rdstls, wStream* s)
@@ -411,11 +489,8 @@ static BOOL rdstls_read_unicode_string(WINPR_ATTR_UNUSED wLog* log, wStream* s, 
 		return TRUE;
 	}
 
-	*str = Stream_Read_UTF16_String_As_UTF8(s, length / sizeof(WCHAR), NULL);
-	if (!*str)
-		return FALSE;
-
-	return TRUE;
+	*str = Stream_Read_UTF16_String_As_UTF8(s, length / sizeof(WCHAR), nullptr);
+	return (*str) != nullptr;
 }
 
 static BOOL rdstls_read_data(WINPR_ATTR_UNUSED wLog* log, wStream* s, UINT16* pLength,
@@ -424,7 +499,7 @@ static BOOL rdstls_read_data(WINPR_ATTR_UNUSED wLog* log, wStream* s, UINT16* pL
 	WINPR_ASSERT(pLength);
 	WINPR_ASSERT(pData);
 
-	*pData = NULL;
+	*pData = nullptr;
 	*pLength = 0;
 	if (!Stream_CheckAndLogRequiredLengthWLog(log, s, 2))
 		return FALSE;
@@ -499,11 +574,11 @@ static BOOL rdstls_process_authentication_request_with_password(rdpRdstls* rdstl
 
 	BOOL rc = FALSE;
 
-	const BYTE* clientRedirectionGuid = NULL;
+	const BYTE* clientRedirectionGuid = nullptr;
 	UINT16 clientRedirectionGuidLength = 0;
-	char* clientPassword = NULL;
-	char* clientUsername = NULL;
-	char* clientDomain = NULL;
+	char* clientPassword = nullptr;
+	char* clientUsername = nullptr;
+	char* clientDomain = nullptr;
 
 	const rdpSettings* settings = rdstls->context->settings;
 	WINPR_ASSERT(settings);
@@ -649,7 +724,7 @@ static BOOL rdstls_process_authentication_response(rdpRdstls* rdstls, wStream* s
 static BOOL rdstls_send(WINPR_ATTR_UNUSED rdpTransport* transport, wStream* s, void* extra)
 {
 	rdpRdstls* rdstls = (rdpRdstls*)extra;
-	rdpSettings* settings = NULL;
+	rdpSettings* settings = nullptr;
 
 	WINPR_ASSERT(transport);
 	WINPR_ASSERT(s);
@@ -661,9 +736,12 @@ static BOOL rdstls_send(WINPR_ATTR_UNUSED rdpTransport* transport, wStream* s, v
 	if (!Stream_EnsureRemainingCapacity(s, 2))
 		return FALSE;
 
-	Stream_Write_UINT16(s, RDSTLS_VERSION_1);
-
 	const RDSTLS_STATE state = rdstls_get_state(rdstls);
+	const char* fedAuthToken = freerdp_settings_get_string(settings, FreeRDP_EndpointFedAuthToken);
+	const BOOL useFedAuth = (state == RDSTLS_STATE_AUTH_REQ) && !utils_str_is_empty(fedAuthToken);
+
+	Stream_Write_UINT16(s, useFedAuth ? RDSTLS_VERSION_2 : RDSTLS_VERSION_1);
+
 	switch (state)
 	{
 		case RDSTLS_STATE_CAPABILITIES:
@@ -671,12 +749,17 @@ static BOOL rdstls_send(WINPR_ATTR_UNUSED rdpTransport* transport, wStream* s, v
 				return FALSE;
 			break;
 		case RDSTLS_STATE_AUTH_REQ:
-			if (settings->RedirectionFlags & LB_PASSWORD_IS_PK_ENCRYPTED)
+			if (useFedAuth)
+			{
+				if (!rdstls_write_authentication_request_with_fedauth_token(rdstls, s))
+					return FALSE;
+			}
+			else if (settings->RedirectionFlags & LB_PASSWORD_IS_PK_ENCRYPTED)
 			{
 				if (!rdstls_write_authentication_request_with_password(rdstls, s))
 					return FALSE;
 			}
-			else if (settings->ServerAutoReconnectCookie != NULL)
+			else if (settings->ServerAutoReconnectCookie != nullptr)
 			{
 				if (!rdstls_write_authentication_request_with_cookie(rdstls, s))
 					return FALSE;
@@ -684,7 +767,8 @@ static BOOL rdstls_send(WINPR_ATTR_UNUSED rdpTransport* transport, wStream* s, v
 			else
 			{
 				WLog_Print(rdstls->log, WLOG_ERROR,
-				           "cannot authenticate with password or auto-reconnect cookie");
+				           "cannot authenticate with FedAuth token, password or "
+				           "auto-reconnect cookie");
 				return FALSE;
 			}
 			break;
@@ -698,10 +782,7 @@ static BOOL rdstls_send(WINPR_ATTR_UNUSED rdpTransport* transport, wStream* s, v
 			return FALSE;
 	}
 
-	if (transport_write(rdstls->transport, s) < 0)
-		return FALSE;
-
-	return TRUE;
+	return (transport_write(rdstls->transport, s) >= 0);
 }
 
 static int rdstls_recv(WINPR_ATTR_UNUSED rdpTransport* transport, wStream* s, void* extra)
@@ -776,7 +857,7 @@ static BOOL rdstls_send_capabilities(rdpRdstls* rdstls)
 	if (!rdstls_check_state_requirements(rdstls, RDSTLS_STATE_CAPABILITIES))
 		return FALSE;
 
-	wStream* s = Stream_New(NULL, 512);
+	wStream* s = Stream_New(nullptr, 512);
 	if (!s)
 		goto fail;
 
@@ -797,7 +878,7 @@ static BOOL rdstls_recv_authentication_request(rdpRdstls* rdstls)
 	if (!rdstls_check_state_requirements(rdstls, RDSTLS_STATE_AUTH_REQ))
 		return FALSE;
 
-	wStream* s = Stream_New(NULL, 4096);
+	wStream* s = Stream_New(nullptr, 4096);
 	if (!s)
 		goto fail;
 
@@ -828,7 +909,7 @@ static BOOL rdstls_send_authentication_response(rdpRdstls* rdstls)
 	if (!rdstls_check_state_requirements(rdstls, RDSTLS_STATE_AUTH_RSP))
 		return FALSE;
 
-	wStream* s = Stream_New(NULL, 512);
+	wStream* s = Stream_New(nullptr, 512);
 	if (!s)
 		goto fail;
 
@@ -849,7 +930,7 @@ static BOOL rdstls_recv_capabilities(rdpRdstls* rdstls)
 	if (!rdstls_check_state_requirements(rdstls, RDSTLS_STATE_CAPABILITIES))
 		return FALSE;
 
-	wStream* s = Stream_New(NULL, 512);
+	wStream* s = Stream_New(nullptr, 512);
 	if (!s)
 		goto fail;
 
@@ -880,7 +961,7 @@ static BOOL rdstls_send_authentication_request(rdpRdstls* rdstls)
 	if (!rdstls_check_state_requirements(rdstls, RDSTLS_STATE_AUTH_REQ))
 		return FALSE;
 
-	wStream* s = Stream_New(NULL, 4096);
+	wStream* s = Stream_New(nullptr, 4096);
 	if (!s)
 		goto fail;
 
@@ -903,7 +984,7 @@ static BOOL rdstls_recv_authentication_response(rdpRdstls* rdstls)
 	if (!rdstls_check_state_requirements(rdstls, RDSTLS_STATE_AUTH_RSP))
 		return FALSE;
 
-	wStream* s = Stream_New(NULL, 512);
+	wStream* s = Stream_New(nullptr, 512);
 	if (!s)
 		goto fail;
 
@@ -1048,7 +1129,7 @@ static SSIZE_T rdstls_parse_pdu_data_type(wLog* log, UINT16 dataType, wStream* s
 SSIZE_T rdstls_parse_pdu(wLog* log, wStream* stream)
 {
 	SSIZE_T pduLength = -1;
-	wStream sbuffer = { 0 };
+	wStream sbuffer = WINPR_C_ARRAY_INIT;
 	wStream* s = Stream_StaticConstInit(&sbuffer, Stream_Buffer(stream), Stream_Length(stream));
 
 	if (Stream_GetRemainingLength(s) < 2)

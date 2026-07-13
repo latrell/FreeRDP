@@ -22,12 +22,12 @@ winpr_include_directory_add(${CMAKE_CURRENT_SOURCE_DIR})
 
 option(WITH_DEBUG_UTILS_CMDLINE_DUMP "build with excessive command line parser logging" OFF)
 if(WITH_DEBUG_UTILS_CMDLINE_DUMP)
-  winpr_definition_add(-DWITH_DEBUG_UTILS_CMDLINE_DUMP)
+  winpr_definition_add(WITH_DEBUG_UTILS_CMDLINE_DUMP)
 endif()
 
 option(WITH_STREAMPOOL_DEBUG "build with extensive streampool logging" OFF)
 if(WITH_STREAMPOOL_DEBUG)
-  winpr_definition_add(-DWITH_STREAMPOOL_DEBUG)
+  winpr_definition_add(WITH_STREAMPOOL_DEBUG)
 endif()
 
 option(WITH_LODEPNG "build WinPR with PNG support" OFF)
@@ -54,22 +54,32 @@ endif()
 
 option(WINPR_UTILS_IMAGE_WEBP "Add WebP <--> BMP conversion support to clipboard" OFF)
 if(WINPR_UTILS_IMAGE_WEBP)
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(WEBP libwebp REQUIRED)
-  winpr_pc_add_requires_private("libwebp")
+  find_package(WebP)
+  if(WebP_FOUND)
+    set_target_properties(WebP::webp PROPERTIES IMPORTED_GLOBAL TRUE)
+    winpr_library_add_private(WebP::webp)
+  else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(WebP REQUIRED IMPORTED_TARGET GLOBAL libwebp)
 
-  winpr_system_include_directory_add(${WEBP_INCLUDE_DIRS})
-  winpr_library_add_private(${WEBP_LIBRARIES})
+    winpr_library_add_private(PkgConfig::WebP)
+  endif()
+  winpr_pc_add_requires_private("libwebp")
 endif()
 
 option(WINPR_UTILS_IMAGE_JPEG "Add Jpeg <--> BMP conversion support to clipboard" OFF)
 if(WINPR_UTILS_IMAGE_JPEG)
-  find_package(PkgConfig REQUIRED)
-  pkg_check_modules(JPEG libjpeg REQUIRED)
-  winpr_pc_add_requires_private("libjpeg")
+  find_package(libjpeg-turbo)
+  if(libjpeg-turbo_FOUND)
+    set_target_properties(libjpeg-turbo::jpeg PROPERTIES IMPORTED_GLOBAL TRUE)
+    winpr_library_add_private(libjpeg-turbo::jpeg)
+  else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(jpeg REQUIRED IMPORTED_TARGET GLOBAL libjpeg)
 
-  winpr_system_include_directory_add(${JPEG_INCLUDE_DIRS})
-  winpr_library_add_private(${JPEG_LIBRARIES})
+    winpr_library_add_private(PkgConfig::jpeg)
+  endif()
+  winpr_pc_add_requires_private("libjpeg")
 endif()
 
 set(COLLECTIONS_SRCS
@@ -139,6 +149,7 @@ set(WLOG_SRCS
 set(ASN1_SRCS asn1/asn1.c)
 
 set(SRCS
+    atexit.c
     ini.c
     sam.c
     ntlm.c

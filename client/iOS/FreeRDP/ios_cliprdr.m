@@ -39,7 +39,7 @@ UINT ios_cliprdr_send_client_format_list(CliprdrClientContext *cliprdr)
 	UINT32 *pFormatIds;
 	const char *formatName;
 	CLIPRDR_FORMAT *formats;
-	CLIPRDR_FORMAT_LIST formatList = { 0 };
+	CLIPRDR_FORMAT_LIST formatList = WINPR_C_ARRAY_INIT;
 
 	if (!cliprdr)
 		return ERROR_INVALID_PARAMETER;
@@ -49,7 +49,7 @@ UINT ios_cliprdr_send_client_format_list(CliprdrClientContext *cliprdr)
 	if (!afc || !afc->cliprdr)
 		return ERROR_INVALID_PARAMETER;
 
-	pFormatIds = NULL;
+	pFormatIds = nullptr;
 	numFormats = ClipboardGetFormatIds(afc->clipboard, &pFormatIds);
 	formats = (CLIPRDR_FORMAT *)calloc(numFormats, sizeof(CLIPRDR_FORMAT));
 
@@ -61,7 +61,7 @@ UINT ios_cliprdr_send_client_format_list(CliprdrClientContext *cliprdr)
 		formatId = pFormatIds[index];
 		formatName = ClipboardGetFormatName(afc->clipboard, formatId);
 		formats[index].formatId = formatId;
-		formats[index].formatName = NULL;
+		formats[index].formatName = nullptr;
 
 		if ((formatId > CF_MAX) && formatName)
 		{
@@ -91,7 +91,7 @@ static UINT ios_cliprdr_send_client_format_data_request(CliprdrClientContext *cl
                                                         UINT32 formatId)
 {
 	UINT rc = ERROR_INVALID_PARAMETER;
-	CLIPRDR_FORMAT_DATA_REQUEST formatDataRequest = { 0 };
+	CLIPRDR_FORMAT_DATA_REQUEST formatDataRequest = WINPR_C_ARRAY_INIT;
 	mfContext *afc;
 
 	if (!cliprdr)
@@ -220,7 +220,7 @@ static UINT ios_cliprdr_server_format_list(CliprdrClientContext *cliprdr,
 			free(afc->serverFormats[index].formatName);
 
 		free(afc->serverFormats);
-		afc->serverFormats = NULL;
+		afc->serverFormats = nullptr;
 		afc->numServerFormats = 0;
 	}
 
@@ -236,7 +236,7 @@ static UINT ios_cliprdr_server_format_list(CliprdrClientContext *cliprdr,
 	for (UINT32 index = 0; index < afc->numServerFormats; index++)
 	{
 		afc->serverFormats[index].formatId = formatList->formats[index].formatId;
-		afc->serverFormats[index].formatName = NULL;
+		afc->serverFormats[index].formatName = nullptr;
 
 		if (formatList->formats[index].formatName)
 		{
@@ -325,7 +325,7 @@ ios_cliprdr_server_format_data_request(CliprdrClientContext *cliprdr,
 	BYTE *data;
 	UINT32 size;
 	UINT32 formatId;
-	CLIPRDR_FORMAT_DATA_RESPONSE response = { 0 };
+	CLIPRDR_FORMAT_DATA_RESPONSE response = WINPR_C_ARRAY_INIT;
 	mfContext *afc;
 
 	if (!cliprdr || !formatDataRequest || !cliprdr->ClientFormatDataResponse)
@@ -346,7 +346,7 @@ ios_cliprdr_server_format_data_request(CliprdrClientContext *cliprdr,
 	{
 		response.common.msgFlags = CB_RESPONSE_FAIL;
 		response.common.dataLen = 0;
-		response.requestedFormatData = NULL;
+		response.requestedFormatData = nullptr;
 	}
 
 	rc = cliprdr->ClientFormatDataResponse(cliprdr, &response);
@@ -366,7 +366,7 @@ ios_cliprdr_server_format_data_response(CliprdrClientContext *cliprdr,
 	BYTE *data;
 	UINT32 size;
 	UINT32 formatId;
-	CLIPRDR_FORMAT *format = NULL;
+	CLIPRDR_FORMAT *format = nullptr;
 	mfContext *afc;
 	freerdp *instance;
 
@@ -412,10 +412,14 @@ ios_cliprdr_server_format_data_response(CliprdrClientContext *cliprdr,
 	{
 		formatId = ClipboardRegisterFormat(afc->clipboard, "UTF8_STRING");
 		data = (BYTE *)ClipboardGetData(afc->clipboard, formatId, &size);
-		size = (UINT32)strnlen(data, size);
-		if (afc->ServerCutText != NULL)
+		size = (UINT32)strnlen((const char *)data, size);
+		if (afc->ServerCutText != nullptr)
 		{
-			afc->ServerCutText((rdpContext *)afc, (uint8_t *)data, size);
+			if (!afc->ServerCutText((rdpContext *)afc, (uint8_t *)data, size))
+			{
+				ClipboardUnlock(afc->clipboard);
+				return ERROR_INTERNAL_ERROR;
+			}
 		}
 	}
 	ClipboardUnlock(afc->clipboard);
@@ -460,7 +464,7 @@ BOOL ios_cliprdr_init(mfContext *afc, CliprdrClientContext *cliprdr)
 	if (!afc || !cliprdr)
 		return FALSE;
 
-	if (!(hevent = CreateEvent(NULL, TRUE, FALSE, NULL)))
+	if (!(hevent = CreateEvent(nullptr, TRUE, FALSE, nullptr)))
 		return FALSE;
 
 	if (!(clipboard = ClipboardCreate()))
@@ -491,8 +495,8 @@ BOOL ios_cliprdr_uninit(mfContext *afc, CliprdrClientContext *cliprdr)
 	if (!afc || !cliprdr)
 		return FALSE;
 
-	cliprdr->custom = NULL;
-	afc->cliprdr = NULL;
+	cliprdr->custom = nullptr;
+	afc->cliprdr = nullptr;
 	ClipboardDestroy(afc->clipboard);
 	(void)CloseHandle(afc->clipboardRequestEvent);
 	return TRUE;

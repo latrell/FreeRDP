@@ -202,16 +202,16 @@ extern "C"
 		rdpContext* context;     /* 0 */
 		UINT32 paddingA[16 - 1]; /* 1 */
 
-		pBeginPaint BeginPaint;                       /* 16 */
-		pEndPaint EndPaint;                           /* 17 */
-		pSetBounds SetBounds;                         /* 18 */
-		pSynchronize Synchronize;                     /* 19 */
-		pDesktopResize DesktopResize;                 /* 20 */
-		pBitmapUpdate BitmapUpdate;                   /* 21 */
-		pPalette Palette;                             /* 22 */
-		pPlaySound PlaySound;                         /* 23 */
-		pSetKeyboardIndicators SetKeyboardIndicators; /* 24 */
-		pSetKeyboardImeStatus SetKeyboardImeStatus;   /* 25 */
+		WINPR_ATTR_NODISCARD pBeginPaint BeginPaint;                       /* 16 */
+		WINPR_ATTR_NODISCARD pEndPaint EndPaint;                           /* 17 */
+		WINPR_ATTR_NODISCARD pSetBounds SetBounds;                         /* 18 */
+		WINPR_ATTR_NODISCARD pSynchronize Synchronize;                     /* 19 */
+		WINPR_ATTR_NODISCARD pDesktopResize DesktopResize;                 /* 20 */
+		WINPR_ATTR_NODISCARD pBitmapUpdate BitmapUpdate;                   /* 21 */
+		WINPR_ATTR_NODISCARD pPalette Palette;                             /* 22 */
+		WINPR_ATTR_NODISCARD pPlaySound PlaySound;                         /* 23 */
+		WINPR_ATTR_NODISCARD pSetKeyboardIndicators SetKeyboardIndicators; /* 24 */
+		WINPR_ATTR_NODISCARD pSetKeyboardImeStatus SetKeyboardImeStatus;   /* 25 */
 		UINT32 paddingB[32 - 26];                     /* 26 */
 
 		rdpPointerUpdate* pointer;     /* 32 */
@@ -226,13 +226,13 @@ extern "C"
 		pRemoteMonitors RemoteMonitors; /* 50 */
 		UINT32 paddingD[64 - 51];       /* 51 */
 
-		pSurfaceCommand SurfaceCommand;                   /* 64 */
-		pSurfaceBits SurfaceBits;                         /* 65 */
-		pSurfaceFrameMarker SurfaceFrameMarker;           /* 66 */
-		pSurfaceFrameBits SurfaceFrameBits;               /* 67 */
-		pSurfaceFrameAcknowledge SurfaceFrameAcknowledge; /* 68 */
-		pSaveSessionInfo SaveSessionInfo;                 /* 69 */
-		pServerStatusInfo ServerStatusInfo;               /* 70 */
+		WINPR_ATTR_NODISCARD pSurfaceCommand SurfaceCommand;                   /* 64 */
+		WINPR_ATTR_NODISCARD pSurfaceBits SurfaceBits;                         /* 65 */
+		WINPR_ATTR_NODISCARD pSurfaceFrameMarker SurfaceFrameMarker;           /* 66 */
+		WINPR_ATTR_NODISCARD pSurfaceFrameBits SurfaceFrameBits;               /* 67 */
+		WINPR_ATTR_NODISCARD pSurfaceFrameAcknowledge SurfaceFrameAcknowledge; /* 68 */
+		WINPR_ATTR_NODISCARD pSaveSessionInfo SaveSessionInfo;                 /* 69 */
+		WINPR_ATTR_NODISCARD pServerStatusInfo ServerStatusInfo;               /* 70 */
 		/* if autoCalculateBitmapData is set to TRUE, the server automatically
 		 * fills BITMAP_DATA struct members: flags, cbCompMainBodySize and cbCompFirstRowSize.
 		 */
@@ -242,6 +242,33 @@ extern "C"
 
 	FREERDP_API void rdp_update_lock(rdpUpdate* update);
 	FREERDP_API void rdp_update_unlock(rdpUpdate* update);
+
+	/** @brief Get the number of RDP codec stats indices in use.
+	 *
+	 *  @return The number of RDP codec stats indices that will return a value
+	 *  @since version 3.27.0
+	 */
+	WINPR_ATTR_NODISCARD
+	FREERDP_API size_t rdp_stats_max_index(void);
+
+	/** @brief Get the name of a RDP codec stats index.
+	 *
+	 *  @param index The index to query
+	 *  @return The name of the stats index or RDP_STATS_UNUSED if an invalid index is used
+	 *  @since version 3.27.0
+	 */
+	WINPR_ATTR_NODISCARD
+	FREERDP_API const char* rdp_stats_name_for_index(size_t index);
+
+	/** @brief Get the value of a RDP codec stats index.
+	 *
+	 *  @param context The RDP codec context to query. Must not be nullptr.
+	 *  @param index The index to query
+	 *  @return The value of a RDP codec stats index
+	 *  @since version 3.27.0
+	 */
+	WINPR_ATTR_NODISCARD
+	FREERDP_API uint64_t rdp_stats_value_for_index(rdpUpdate* context, size_t index);
 
 #ifdef __cplusplus
 }

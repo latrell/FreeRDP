@@ -36,9 +36,9 @@
 
 #include <windowsx.h>
 
-static HWND g_focus_hWnd = NULL;
-static HWND g_main_hWnd = NULL;
-static HWND g_parent_hWnd = NULL;
+static HWND g_focus_hWnd = nullptr;
+static HWND g_main_hWnd = nullptr;
+static HWND g_parent_hWnd = nullptr;
 
 #define RESIZE_MIN_DELAY 200 /* minimum delay in ms between two resizes */
 
@@ -53,7 +53,7 @@ static BOOL wf_scale_mouse_event_ex(wfContext* wfc, UINT16 flags, UINT16 buttonM
 static BOOL g_flipping_in = FALSE;
 static BOOL g_flipping_out = FALSE;
 
-static BOOL g_keystates[256] = { 0 };
+static BOOL g_keystates[256] = WINPR_C_ARRAY_INIT;
 
 static BOOL ctrl_down(void)
 {
@@ -70,7 +70,7 @@ LRESULT CALLBACK wf_ll_kbd_proc(int nCode, WPARAM wParam, LPARAM lParam)
 {
 	DWORD ext_proc_id = 0;
 
-	wfContext* wfc = NULL;
+	wfContext* wfc = nullptr;
 	DWORD rdp_scancode;
 	BOOL keystate;
 	rdpInput* input;
@@ -83,7 +83,7 @@ LRESULT CALLBACK wf_ll_kbd_proc(int nCode, WPARAM wParam, LPARAM lParam)
 		if (!alt_ctrl_down())
 			g_flipping_in = FALSE;
 
-		return CallNextHookEx(NULL, nCode, wParam, lParam);
+		return CallNextHookEx(nullptr, nCode, wParam, lParam);
 	}
 
 	if (g_parent_hWnd && g_main_hWnd)
@@ -96,8 +96,8 @@ LRESULT CALLBACK wf_ll_kbd_proc(int nCode, WPARAM wParam, LPARAM lParam)
 		BOOL result = GetGUIThreadInfo(fg_win_thread_id, &gui_thread_info);
 		if (gui_thread_info.hwndFocus != wfc->hWndParent)
 		{
-			g_focus_hWnd = NULL;
-			return CallNextHookEx(NULL, nCode, wParam, lParam);
+			g_focus_hWnd = nullptr;
+			return CallNextHookEx(nullptr, nCode, wParam, lParam);
 		}
 
 		g_focus_hWnd = g_main_hWnd;
@@ -205,11 +205,11 @@ LRESULT CALLBACK wf_ll_kbd_proc(int nCode, WPARAM wParam, LPARAM lParam)
 		if (!alt_ctrl_down())
 		{
 			g_flipping_out = FALSE;
-			g_focus_hWnd = NULL;
+			g_focus_hWnd = nullptr;
 		}
 	}
 
-	return CallNextHookEx(NULL, nCode, wParam, lParam);
+	return CallNextHookEx(nullptr, nCode, wParam, lParam);
 }
 
 void wf_event_focus_in(wfContext* wfc)
@@ -327,7 +327,8 @@ static void wf_send_resize(wfContext* wfc)
 	int targetHeight = wfc->client_height;
 	rdpSettings* settings = wfc->common.context.settings;
 
-	if (freerdp_settings_get_bool(settings, FreeRDP_DynamicResolutionUpdate) && wfc->disp != NULL)
+	if (freerdp_settings_get_bool(settings, FreeRDP_DynamicResolutionUpdate) &&
+	    wfc->disp != nullptr)
 	{
 		if (GetTickCount64() - wfc->lastSentDate > RESIZE_MIN_DELAY)
 		{
@@ -340,7 +341,7 @@ static void wf_send_resize(wfContext* wfc)
 			if (freerdp_settings_get_uint32(settings, FreeRDP_SmartSizingWidth) != targetWidth ||
 			    freerdp_settings_get_uint32(settings, FreeRDP_SmartSizingHeight) != targetHeight)
 			{
-				DISPLAY_CONTROL_MONITOR_LAYOUT layout = { 0 };
+				DISPLAY_CONTROL_MONITOR_LAYOUT layout = WINPR_C_ARRAY_INIT;
 
 				layout.Flags = DISPLAY_CONTROL_MONITOR_PRIMARY;
 				layout.Top = layout.Left = 0;
@@ -371,17 +372,17 @@ static void wf_send_resize(wfContext* wfc)
 
 LRESULT CALLBACK wf_event_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam)
 {
-	HDC hdc = { 0 };
-	PAINTSTRUCT ps = { 0 };
+	HDC hdc = WINPR_C_ARRAY_INIT;
+	PAINTSTRUCT ps = WINPR_C_ARRAY_INIT;
 	BOOL processed = FALSE;
-	RECT windowRect = { 0 };
-	MINMAXINFO* minmax = NULL;
-	SCROLLINFO si = { 0 };
+	RECT windowRect = WINPR_C_ARRAY_INIT;
+	MINMAXINFO* minmax = nullptr;
+	SCROLLINFO si = WINPR_C_ARRAY_INIT;
 	processed = TRUE;
 	LONG_PTR ptr = GetWindowLongPtr(hWnd, GWLP_USERDATA);
 	wfContext* wfc = (wfContext*)ptr;
 
-	if (wfc != NULL)
+	if (wfc != nullptr)
 	{
 		rdpInput* input = wfc->common.context.input;
 		rdpSettings* settings = wfc->common.context.settings;
@@ -475,7 +476,7 @@ LRESULT CALLBACK wf_event_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam
 					}
 					else if (wParam == SIZE_MINIMIZED)
 					{
-						g_focus_hWnd = NULL;
+						g_focus_hWnd = nullptr;
 					}
 				}
 
@@ -640,8 +641,9 @@ LRESULT CALLBACK wf_event_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam
 				// client area when ScrollWindowEx is called; however, it is
 				// necessary to call UpdateWindow in order to repaint the
 				// rectangle of pixels that were invalidated.)
-				ScrollWindowEx(wfc->hwnd, -xDelta, -yDelta, (CONST RECT*)NULL, (CONST RECT*)NULL,
-				               (HRGN)NULL, (PRECT)NULL, SW_INVALIDATE);
+				ScrollWindowEx(wfc->hwnd, -xDelta, -yDelta, (CONST RECT*)nullptr,
+				               (CONST RECT*)nullptr, (HRGN) nullptr, (PRECT) nullptr,
+				               SW_INVALIDATE);
 				UpdateWindow(wfc->hwnd);
 				// Reset the scroll bar.
 				si.cbSize = sizeof(si);
@@ -709,8 +711,9 @@ LRESULT CALLBACK wf_event_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam
 				// client area when ScrollWindowEx is called; however, it is
 				// necessary to call UpdateWindow in order to repaint the
 				// rectangle of pixels that were invalidated.)
-				ScrollWindowEx(wfc->hwnd, -xDelta, -yDelta, (CONST RECT*)NULL, (CONST RECT*)NULL,
-				               (HRGN)NULL, (PRECT)NULL, SW_INVALIDATE);
+				ScrollWindowEx(wfc->hwnd, -xDelta, -yDelta, (CONST RECT*)nullptr,
+				               (CONST RECT*)nullptr, (HRGN) nullptr, (PRECT) nullptr,
+				               SW_INVALIDATE);
 				UpdateWindow(wfc->hwnd);
 				// Reset the scroll bar.
 				si.cbSize = sizeof(si);
@@ -750,6 +753,12 @@ LRESULT CALLBACK wf_event_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam
 				{
 					freerdp_client_encomsp_set_control(wfc->common.encomsp, TRUE);
 				}
+				else if (((wParam & 0xfff0) == SC_MAXIMIZE) && wfc->fullscreen_toggle &&
+				         freerdp_settings_get_bool(settings, FreeRDP_Fullscreen) &&
+				         !wfc->fullscreen)
+				{
+					wf_toggle_fullscreen(wfc);
+				}
 				else
 				{
 					processed = FALSE;
@@ -787,6 +796,7 @@ LRESULT CALLBACK wf_event_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam
 
 			g_focus_hWnd = hWnd;
 			freerdp_set_focus(wfc->common.context.instance);
+			wf_event_focus_in(wfc);
 			break;
 
 		case WM_KILLFOCUS:
@@ -800,7 +810,7 @@ LRESULT CALLBACK wf_event_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam
 				if (alt_ctrl_down())
 					g_flipping_out = TRUE;
 				else
-					g_focus_hWnd = NULL;
+					g_focus_hWnd = nullptr;
 			}
 
 			break;
@@ -822,7 +832,7 @@ LRESULT CALLBACK wf_event_proc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam
 				if (alt_ctrl_down())
 					g_flipping_out = TRUE;
 				else
-					g_focus_hWnd = NULL;
+					g_focus_hWnd = nullptr;
 			}
 		}
 
@@ -868,7 +878,7 @@ BOOL wf_scale_blt(wfContext* wfc, HDC hdc, int x, int y, int w, int h, HDC hdcSr
 	else
 	{
 		SetStretchBltMode(hdc, HALFTONE);
-		SetBrushOrgEx(hdc, 0, 0, NULL);
+		SetBrushOrgEx(hdc, 0, 0, nullptr);
 		return StretchBlt(hdc, 0, 0, ww, wh, wfc->primary->hdc, 0, 0, dw, dh, SRCCOPY);
 	}
 
@@ -918,13 +928,12 @@ static BOOL wf_scale_mouse_pos(wfContext* wfc, INT32 x, INT32 y, UINT16* px, UIN
 
 static BOOL wf_pub_mouse_event(wfContext* wfc, UINT16 flags, UINT16 x, UINT16 y)
 {
-	MouseEventEventArgs eventArgs = { 0 };
+	MouseEventEventArgs eventArgs = WINPR_C_ARRAY_INIT;
 
 	eventArgs.flags = flags;
 	eventArgs.x = x;
 	eventArgs.y = y;
-	PubSub_OnMouseEvent(wfc->common.context.pubSub, &wfc->common.context, &eventArgs);
-	return TRUE;
+	return PubSub_OnMouseEvent(wfc->common.context.pubSub, &wfc->common.context, &eventArgs) >= 0;
 }
 
 static BOOL wf_scale_mouse_event(wfContext* wfc, UINT16 flags, INT32 x, INT32 y)
@@ -936,7 +945,8 @@ static BOOL wf_scale_mouse_event(wfContext* wfc, UINT16 flags, INT32 x, INT32 y)
 	if (!wf_scale_mouse_pos(wfc, x, y, &px, &py))
 		return FALSE;
 
-	if (freerdp_client_send_button_event(&wfc->common, FALSE, flags, px, py))
+	/* Fix: correct return value check (TRUE means success). */
+	if (!freerdp_client_send_button_event(&wfc->common, FALSE, flags, px, py))
 		return FALSE;
 
 	return wf_pub_mouse_event(wfc, flags, px, py);
@@ -959,9 +969,41 @@ static BOOL wf_scale_mouse_event_ex(wfContext* wfc, UINT16 flags, UINT16 buttonM
 	if (!wf_scale_mouse_pos(wfc, x, y, &px, &py))
 		return FALSE;
 
-	if (freerdp_client_send_extended_button_event(&wfc->common, FALSE, flags, px, py))
+	/* Fix: correct return value check for extended mouse events. */
+	if (!freerdp_client_send_extended_button_event(&wfc->common, FALSE, flags, px, py))
 		return FALSE;
 
 	return wf_pub_mouse_event(wfc, flags, px, py);
 }
 #endif
+
+BOOL wf_keyboard_set_indicators(rdpContext* context, UINT16 led_flags)
+{
+	wfContext* wfc = (wfContext*)context;
+	BYTE keyState[256] = WINPR_C_ARRAY_INIT;
+
+	if (!wfc || !GetKeyboardState(keyState))
+		return FALSE;
+
+	if (led_flags & KBD_SYNC_NUM_LOCK)
+		keyState[VK_NUMLOCK] |= 1;
+	else
+		keyState[VK_NUMLOCK] &= ~1;
+
+	if (led_flags & KBD_SYNC_CAPS_LOCK)
+		keyState[VK_CAPITAL] |= 1;
+	else
+		keyState[VK_CAPITAL] &= ~1;
+
+	if (led_flags & KBD_SYNC_SCROLL_LOCK)
+		keyState[VK_SCROLL] |= 1;
+	else
+		keyState[VK_SCROLL] &= ~1;
+
+	if (led_flags & KBD_SYNC_KANA_LOCK)
+		keyState[VK_KANA] |= 1;
+	else
+		keyState[VK_KANA] &= ~1;
+
+	return SetKeyboardState(keyState);
+}

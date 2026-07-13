@@ -36,7 +36,7 @@ static std::string from_settings(const rdpSettings* settings, FreeRDP_Settings_K
 	auto val = freerdp_settings_get_string(settings, id);
 	if (!val)
 	{
-		WLog_WARN(TAG, "Settings key %s is NULL", freerdp_settings_get_name_for_key(id));
+		WLog_WARN(TAG, "Settings key %s is nullptr", freerdp_settings_get_name_for_key(id));
 		return "";
 	}
 	return val;
@@ -48,7 +48,8 @@ static std::string from_aad_wellknown(rdpContext* context, AAD_WELLKNOWN_VALUES 
 
 	if (!val)
 	{
-		WLog_WARN(TAG, "[wellknown] key %s is NULL", freerdp_utils_aad_wellknwon_value_name(which));
+		WLog_WARN(TAG, "[wellknown] key %s is nullptr",
+		          freerdp_utils_aad_wellknwon_value_name(which));
 		return "";
 	}
 	return val;
@@ -148,7 +149,8 @@ BOOL sdl_webview_get_access_token(freerdp* instance, AccessTokenType tokenType, 
 				          count);
 			return sdl_webview_get_avd_access_token(instance, token);
 		default:
-			WLog_ERR(TAG, "Unexpected value for AccessTokenType [%" PRIuz "], aborting", tokenType);
+			WLog_ERR(TAG, "Unexpected value for AccessTokenType [%" PRIu32 "], aborting",
+			         tokenType);
 			return FALSE;
 	}
 }

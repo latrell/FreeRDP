@@ -39,22 +39,29 @@ extern "C"
 /**
  * Log Levels
  */
-#define WLOG_TRACE 0
-#define WLOG_DEBUG 1
-#define WLOG_INFO 2
-#define WLOG_WARN 3
-#define WLOG_ERROR 4
-#define WLOG_FATAL 5
-#define WLOG_OFF 6
-#define WLOG_LEVEL_INHERIT 0xFFFF
+typedef enum WINPR_C23_ENUM_TYPE(uint32_t)
+{
+	WLOG_TRACE = 0,
+	WLOG_DEBUG = 1,
+	WLOG_INFO = 2,
+	WLOG_WARN = 3,
+	WLOG_ERROR = 4,
+	WLOG_FATAL = 5,
+	WLOG_OFF = 6,
+	WLOG_LEVEL_INHERIT = 0xFFFF
+} wLogLevel;
 
 /** @defgroup LogMessageTypes Log Message
  *  @{
  */
-#define WLOG_MESSAGE_TEXT 0
-#define WLOG_MESSAGE_DATA 1
-#define WLOG_MESSAGE_IMAGE 2
-#define WLOG_MESSAGE_PACKET 3
+typedef enum WINPR_C23_ENUM_TYPE(uint32_t)
+{
+	WLOG_MESSAGE_TEXT = 0,
+	WLOG_MESSAGE_DATA = 1,
+	WLOG_MESSAGE_IMAGE = 2,
+	WLOG_MESSAGE_PACKET = 3
+} wLogMessageType;
+
 /**
  * @}
  */
@@ -62,47 +69,50 @@ extern "C"
 /**
  * Log Appenders
  */
-#define WLOG_APPENDER_CONSOLE 0
-#define WLOG_APPENDER_FILE 1
-#define WLOG_APPENDER_BINARY 2
-#define WLOG_APPENDER_CALLBACK 3
-#define WLOG_APPENDER_SYSLOG 4
-#define WLOG_APPENDER_JOURNALD 5
-#define WLOG_APPENDER_UDP 6
+typedef enum WINPR_C23_ENUM_TYPE(uint32_t)
+{
+	WLOG_APPENDER_CONSOLE = 0,
+	WLOG_APPENDER_FILE = 1,
+	WLOG_APPENDER_BINARY = 2,
+	WLOG_APPENDER_CALLBACK = 3,
+	WLOG_APPENDER_SYSLOG = 4,
+	WLOG_APPENDER_JOURNALD = 5,
+	WLOG_APPENDER_UDP = 6
+} wLogAppenderType;
 
-	typedef struct
-	{
-		DWORD Type;
+typedef struct
+{
+	DWORD Type;
 
-		DWORD Level;
+	DWORD Level;
 
-		LPSTR PrefixString;
+	LPSTR PrefixString;
 
-		LPCSTR FormatString;
-		LPCSTR TextString;
+	LPCSTR FormatString;
+	LPCSTR TextString;
 
-		size_t LineNumber;   /* __LINE__ */
-		LPCSTR FileName;     /* __FILE__ */
-		LPCSTR FunctionName; /* __func__ */
+	size_t LineNumber;   /* __LINE__ */
+	LPCSTR FileName;     /* __FILE__ */
+	LPCSTR FunctionName; /* __func__ */
 
-		/* Data Message */
+	/* Data Message */
 
-		void* Data;
-		size_t Length;
+	void* Data;
+	size_t Length;
 
-		/* Image Message */
+	/* Image Message */
 
-		void* ImageData;
-		size_t ImageWidth;
-		size_t ImageHeight;
-		size_t ImageBpp;
+	void* ImageData;
+	size_t ImageWidth;
+	size_t ImageHeight;
+	size_t ImageBpp;
 
-		/* Packet Message */
+	/* Packet Message */
 
-		void* PacketData;
-		size_t PacketLength;
-		DWORD PacketFlags;
-	} wLogMessage;
+	void* PacketData;
+	size_t PacketLength;
+	DWORD PacketFlags;
+} wLogMessage;
 	typedef struct s_wLogLayout wLogLayout;
 	typedef struct s_wLogAppender wLogAppender;
 	typedef struct s_wLog wLog;
@@ -176,15 +186,44 @@ extern "C"
 	WINPR_API BOOL WLog_PrintMessageVA(wLog* log, DWORD type, DWORD level, size_t line,
 	                                   const char* file, const char* function, va_list args);
 
+	WINPR_ATTR_NODISCARD
 	WINPR_API wLog* WLog_GetRoot(void);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API wLog* WLog_Get(LPCSTR name);
+
+	/** @brief discard a WLog instance created by \b WLog_Discard and not managed internally.
+	 *
+	 *  @param log The logger instance to discard.
+	 *  @since version 3.25.0
+	 */
+	WINPR_API void WLog_Discard(wLog* log);
+
+	/** @brief Create an independent logger instance. Management of this logger
+	 *  is up to the caller.
+	 *
+	 *  @param name The name of the logger, must not be \b nullptr
+	 *  @param root The parent logger this instance should copy defaults from.
+	 *  @return A new logger instance or \b nullptr in case of failures.
+	 *  @since version 3.25.0
+	 */
+	WINPR_ATTR_MALLOC(WLog_Discard, 1)
+	WINPR_API wLog* WLog_Create(LPCSTR name, wLog* root);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API DWORD WLog_GetLogLevel(wLog* log);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL WLog_IsLevelActive(wLog* _log, DWORD _log_level);
 
 	/** @brief Set a custom context for a dynamic logger.
 	 *  This can be used to print a customized prefix, e.g. some session id for a specific context
 	 *
-	 *  @param log The logger to ste the context for. Must not be \b NULL
+	 *  @warning In multi instance applications only use this with loggers created with \b
+	 * WLog_Create otherwise there may be out of bound reads as the internally managed loggers only
+	 * support a single context
+	 *
+	 *  @param log The logger to ste the context for. Must not be \b nullptr
 	 *  @param fkt A function pointer that is called to get the custimized string.
 	 *  @param context A context \b fkt is called with. Caller must ensure it is still allocated
 	 * when \b log is used
@@ -192,6 +231,21 @@ extern "C"
 	 *  @return \b TRUE for success, \b FALSE otherwise.
 	 */
 	WINPR_API BOOL WLog_SetContext(wLog* log, const char* (*fkt)(void*), void* context);
+
+	/** @brief Set a application wide global logger prefix.
+	 *  This can be used to distinguish WLog entries from different applicatiions like
+	 * freerpd-shadow-cli and xfreerdp. It also allows setting a dynamic prefix depending on command
+	 * line arguments to separate different xfreerdp instances.
+	 *
+	 * @warning This function should only be called directly after \b main before any threads start
+	 * up. Thread safety is undefined!
+	 *
+	 *  @param globalprefix Set a global prefix string prepended to all logger entries. Use \b
+	 * nullptr to disable prefix.
+	 *  @return \b TRUE for success, \b FALSE otherwise.
+	 *  @version since 3.25.0
+	 */
+	WINPR_API BOOL WLog_SetGlobalContext(const char* globalprefix);
 
 #define WLog_Print_unchecked(_log, _log_level, ...)                                         \
 	do                                                                                      \
@@ -211,25 +265,25 @@ extern "C"
 #define WLog_Print_tag(_tag, _log_level, ...)                 \
 	do                                                        \
 	{                                                         \
-		static wLog* _log_cached_ptr = NULL;                  \
+		static wLog* _log_cached_ptr = nullptr;               \
 		if (!_log_cached_ptr)                                 \
 			_log_cached_ptr = WLog_Get(_tag);                 \
 		WLog_Print(_log_cached_ptr, _log_level, __VA_ARGS__); \
 	} while (0)
 
-#define WLog_PrintVA_unchecked(_log, _log_level, _args)                                 \
-	do                                                                                  \
-	{                                                                                   \
-		WLog_PrintTextMessageVA(_log, _log_level, __LINE__, __FILE__, __func__, _args); \
+#define WLog_PrintVA_unchecked(_log, _log_level, _fmt, _args)                                 \
+	do                                                                                        \
+	{                                                                                         \
+		WLog_PrintTextMessageVA(_log, _log_level, __LINE__, __FILE__, __func__, _fmt, _args); \
 	} while (0)
 
-#define WLog_PrintVA(_log, _log_level, _args)                \
-	do                                                       \
-	{                                                        \
-		if (WLog_IsLevelActive(_log, _log_level))            \
-		{                                                    \
-			WLog_PrintVA_unchecked(_log, _log_level, _args); \
-		}                                                    \
+#define WLog_PrintVA(_log, _log_level, _fmt, _args)                \
+	do                                                             \
+	{                                                              \
+		if (WLog_IsLevelActive(_log, _log_level))                  \
+		{                                                          \
+			WLog_PrintVA_unchecked(_log, _log_level, _fmt, _args); \
+		}                                                          \
 	} while (0)
 
 #define WLog_Data(_log, _log_level, ...)                                                         \
@@ -267,13 +321,13 @@ extern "C"
 	                                      size_t line, const char* file, const char* fkt,
 	                                      WINPR_FORMAT_ARG const char* fmt, ...)
 	{
-		static wLog* log_cached_ptr = NULL;
+		static wLog* log_cached_ptr = nullptr;
 		if (!log_cached_ptr)
 			log_cached_ptr = WLog_Get(tag);
 
 		if (WLog_IsLevelActive(log_cached_ptr, log_level))
 		{
-			va_list ap;
+			va_list ap = WINPR_C_ARRAY_INIT;
 			va_start(ap, fmt);
 			WLog_PrintTextMessageVA(log_cached_ptr, log_level, line, file, fkt, fmt, ap);
 			va_end(ap);
@@ -295,24 +349,69 @@ extern "C"
 #define WLog_FATAL(tag, ...) \
 	WLog_Print_dbg_tag(tag, WLOG_FATAL, __LINE__, __FILE__, __func__, __VA_ARGS__)
 
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL WLog_SetLogLevel(wLog* log, DWORD logLevel);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL WLog_SetStringLogLevel(wLog* log, LPCSTR level);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL WLog_AddStringLogFilters(LPCSTR filter);
 
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL WLog_SetLogAppenderType(wLog* log, DWORD logAppenderType);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API wLogAppender* WLog_GetLogAppender(wLog* log);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL WLog_OpenAppender(wLog* log);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL WLog_CloseAppender(wLog* log);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL WLog_ConfigureAppender(wLogAppender* appender, const char* setting, void* value);
 
+	/** @brief Set a custom context for an appender type
+	 *
+	 *  @note The context must stay valid until wLog is terminated!
+	 *
+	 *  @param appender The appender to configure, must not be nullptr
+	 *  @param type The logmessage type to set the context for
+	 *  @param context The custom context to pass to the logger
+	 *
+	 *  @return \b TRUE for success, \b FALSE otherwise
+	 *
+	 *  @since version 3.28.0
+	 */
+	WINPR_ATTR_NODISCARD
+	WINPR_API BOOL WLog_SetAppenderContext(wLogAppender* appender, wLogMessageType type,
+	                                       void* context);
+
+	/** @brief Get a custom context for an appender
+	 *
+	 *  @param appender The appender to configure, must not be nullptr
+	 *  @param type The logmessage type to get the context for
+	 *
+	 *  @return the context set for the logmessage type, might be nullptr
+	 *  @since version 3.28.0
+	 */
+	WINPR_ATTR_NODISCARD
+	WINPR_API void* WLog_GetAppenderContext(wLogAppender* appender, wLogMessageType type);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API wLogLayout* WLog_GetLogLayout(wLog* log);
+
+	WINPR_ATTR_NODISCARD
 	WINPR_API BOOL WLog_Layout_SetPrefixFormat(wLog* log, wLogLayout* layout, const char* format);
 
 #if defined(WITH_WINPR_DEPRECATED)
 	/** Deprecated */
-	WINPR_DEPRECATED(WINPR_API BOOL WLog_Init(void));
+	WINPR_DEPRECATED(WINPR_ATTR_NODISCARD WINPR_API BOOL WLog_Init(void));
+
 	/** Deprecated */
-	WINPR_DEPRECATED(WINPR_API BOOL WLog_Uninit(void));
+	WINPR_DEPRECATED(WINPR_ATTR_NODISCARD WINPR_API BOOL WLog_Uninit(void));
 #endif
 
 	typedef BOOL (*wLogCallbackMessage_t)(const wLogMessage* msg);
@@ -322,11 +421,27 @@ extern "C"
 
 	typedef struct
 	{
-		wLogCallbackData_t data;
-		wLogCallbackImage_t image;
-		wLogCallbackMessage_t message;
-		wLogCallbackPackage_t package;
+		WINPR_ATTR_NODISCARD wLogCallbackData_t data;
+		WINPR_ATTR_NODISCARD wLogCallbackImage_t image;
+		WINPR_ATTR_NODISCARD wLogCallbackMessage_t message;
+		WINPR_ATTR_NODISCARD wLogCallbackPackage_t package;
 	} wLogCallbacks;
+
+	/** @brief extended callback type with context
+	 *  @since version 3.28.0
+	 */
+	typedef BOOL (*wLogCallbackMessageEx_t)(wLogAppender* appender, const wLogMessage* msg);
+
+	/** @brief extended callback type with context
+	 *  @since version 3.28.0
+	 */
+	typedef struct
+	{
+		WINPR_ATTR_NODISCARD wLogCallbackMessageEx_t data;
+		WINPR_ATTR_NODISCARD wLogCallbackMessageEx_t image;
+		WINPR_ATTR_NODISCARD wLogCallbackMessageEx_t message;
+		WINPR_ATTR_NODISCARD wLogCallbackMessageEx_t package;
+	} wLogCallbacksEx;
 
 #ifdef __cplusplus
 }

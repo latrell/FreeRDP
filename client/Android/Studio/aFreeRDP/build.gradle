@@ -1,15 +1,3 @@
-plugins {
-    id 'com.gladed.androidgitversion' version '0.4.14'
-}
-
-androidGitVersion {
-    abis = ['armeabi':1, 'armeabi-v7a':2, 'arm64-v8a':3, 'mips':5, 'mips64':6, 'x86':8, 'x86_64':9 ]
-    prefix ''
-}
-
-println 'Version Name: ' + androidGitVersion.name()
-println 'Version Code: ' + androidGitVersion.code()
-
 apply plugin: 'com.android.application'
 android {
     compileSdkVersion = rootProject.ext.compileApi
@@ -19,11 +7,27 @@ android {
         applicationId "com.freerdp.afreerdp"
         minSdkVersion rootProject.ext.minApi
         targetSdkVersion rootProject.ext.targetApi
-        vectorDrawables.useSupportLibrary = true
-        versionName = androidGitVersion.name()
-        versionCode = androidGitVersion.code()
+        versionName = rootProject.ext.versionName
+        if (versionName.isEmpty())
+          versionName = androidGitVersion.name()
+
+        versionCode = rootProject.ext.versionCode
+        if (versionCode <= 0)
+          versionCode = androidGitVersion.code()
+
+        println 'VERSION_NAME:        ' + versionName
+        println 'VERSION_CODE:        ' + versionCode
     }
 
+    splits {
+        abi {
+            enable rootProject.ext.splitEnabled
+            reset()
+            include rootProject.ext.splitArchs
+            universalApk rootProject.ext.universal
+        }
+    }
+    
     signingConfigs {
         release {
             storeFile file(RELEASE_STORE_FILE)
@@ -43,6 +47,13 @@ android {
         debug {
             jniDebuggable true
         }
+        qa {
+            jniDebuggable true
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
     }
 }
 

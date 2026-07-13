@@ -1,15 +1,25 @@
+/*
+   Activity that displays the about page
+
+   Copyright 2013 Thincast Technologies GmbH, Author: Martin Fleisz
+
+   This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
+   If a copy of the MPL was not distributed with this file, You can obtain one at
+   http://mozilla.org/MPL/2.0/.
+*/
+
 package com.freerdp.freerdpcore.presentation;
 
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
-import android.nfc.FormatException;
 import android.os.Build;
 import android.os.Bundle;
-import androidx.core.text.TextUtilsCompat;
-import androidx.appcompat.app.AppCompatActivity;
 import android.util.Log;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
+
+import androidx.appcompat.app.AppCompatActivity;
 
 import com.freerdp.freerdpcore.R;
 import com.freerdp.freerdpcore.services.LibFreeRDP;
@@ -18,8 +28,6 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.util.Formatter;
-import java.util.IllegalFormatException;
 import java.util.Locale;
 
 public class AboutActivity extends AppCompatActivity
@@ -31,54 +39,71 @@ public class AboutActivity extends AppCompatActivity
 	{
 		super.onCreate(savedInstanceState);
 		setContentView(R.layout.activity_about);
+
+		if (getSupportActionBar() != null)
+			getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+
 		mWebView = findViewById(R.id.activity_about_webview);
+
+		WebSettings settings = mWebView.getSettings();
+		settings.setDomStorageEnabled(true);
+		settings.setUseWideViewPort(true);
+		settings.setLoadWithOverviewMode(true);
+		settings.setSupportZoom(true);
+
+		mWebView.setWebViewClient(new WebViewClient() {
+			@Override public boolean shouldOverrideUrlLoading(WebView view, String url)
+			{
+				if (url.startsWith("file:///android_asset/"))
+				{
+					view.loadUrl(url);
+					return true;
+				}
+				return false;
+			}
+		});
+
+		populate();
 	}
 
-	@Override protected void onResume()
+	@Override public boolean onSupportNavigateUp()
 	{
-		populate();
-		super.onResume();
+		finish();
+		return true;
 	}
 
 	private void populate()
 	{
-		StringBuilder total = new StringBuilder();
-
 		String filename = "about_phone.html";
 		if ((getResources().getConfiguration().screenLayout &
 		     Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE)
-		{
 			filename = "about.html";
-		}
+
 		Locale def = Locale.getDefault();
 		String prefix = def.getLanguage().toLowerCase(def);
-
 		String dir = prefix + "_about_page/";
 		String file = dir + filename;
-		InputStream is;
+
 		try
 		{
-			is = getAssets().open(file);
+			InputStream is = getAssets().open(file);
 			is.close();
 		}
 		catch (IOException e)
 		{
-			Log.e(TAG, "Missing localized asset " + file, e);
+			Log.d(TAG, "No localized asset " + file + ", falling back to default");
 			dir = "about_page/";
 			file = dir + filename;
 		}
 
-		try
+		StringBuilder total = new StringBuilder();
+		try (BufferedReader r = new BufferedReader(new InputStreamReader(getAssets().open(file))))
 		{
-			try (BufferedReader r =
-			         new BufferedReader(new InputStreamReader(getAssets().open(file))))
+			String line;
+			while ((line = r.readLine()) != null)
 			{
-				String line;
-				while ((line = r.readLine()) != null)
-				{
-					total.append(line);
-					total.append("\n");
-				}
+				total.append(line);
+				total.append("\n");
 			}
 		}
 		catch (IOException e)
@@ -86,8 +111,6 @@ public class AboutActivity extends AppCompatActivity
 			Log.e(TAG, "Could not read about page " + file, e);
 		}
 
-		// append FreeRDP core version to app version
-		// get app version
 		String version;
 		try
 		{
@@ -99,16 +122,9 @@ public class AboutActivity extends AppCompatActivity
 		}
 		version = version + " (" + LibFreeRDP.getVersion() + ")";
 
-		WebSettings settings = mWebView.getSettings();
-		settings.setDomStorageEnabled(true);
-		settings.setUseWideViewPort(true);
-		settings.setLoadWithOverviewMode(true);
-		settings.setSupportZoom(true);
-
 		final String base = "file:///android_asset/" + dir;
-
-		final String rawHtml = total.toString();
-		final String html = rawHtml.replaceAll("%AFREERDP_VERSION%", version)
+		final String html = total.toString()
+		                        .replaceAll("%AFREERDP_VERSION%", version)
 		                        .replaceAll("%SYSTEM_VERSION%", Build.VERSION.RELEASE)
 		                        .replaceAll("%DEVICE_MODEL%", Build.MODEL);
 

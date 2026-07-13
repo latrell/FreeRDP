@@ -2,6 +2,7 @@
    Main/Home Activity
 
    Copyright 2013 Thincast Technologies GmbH, Author: Martin Fleisz
+   Copyright 2026 Ibrahim Sevinc <ibrahim.sevinc.mail@gmail.com>
 
    This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
    If a copy of the MPL was not distributed with this file, You can obtain one at
@@ -10,79 +11,69 @@
 
 package com.freerdp.freerdpcore.presentation;
 
-import android.app.AlertDialog;
-import android.content.DialogInterface;
+import androidx.appcompat.app.AlertDialog;
+import android.Manifest;
 import android.content.Intent;
-import android.content.res.Configuration;
+import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
-import android.text.Editable;
-import android.text.TextWatcher;
+import androidx.core.content.FileProvider;
 import android.util.Log;
-import android.view.ContextMenu;
-import android.view.ContextMenu.ContextMenuInfo;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
-import android.view.View;
-import android.view.View.OnClickListener;
-import android.view.View.OnCreateContextMenuListener;
-import android.widget.AdapterView;
-import android.widget.AdapterView.AdapterContextMenuInfo;
-import android.widget.Button;
-import android.widget.CheckBox;
-import android.widget.EditText;
-import android.widget.ListView;
+
+import androidx.activity.OnBackPressedCallback;
+import androidx.appcompat.widget.SearchView;
+import androidx.lifecycle.ViewModelProvider;
+import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.freerdp.freerdpcore.R;
-import com.freerdp.freerdpcore.application.GlobalApp;
+import com.freerdp.freerdpcore.databinding.HomeBinding;
 import com.freerdp.freerdpcore.domain.BookmarkBase;
 import com.freerdp.freerdpcore.domain.ConnectionReference;
-import com.freerdp.freerdpcore.domain.PlaceholderBookmark;
-import com.freerdp.freerdpcore.domain.QuickConnectBookmark;
-import com.freerdp.freerdpcore.utils.BookmarkArrayAdapter;
-import com.freerdp.freerdpcore.utils.SeparatedListAdapter;
+import com.freerdp.freerdpcore.utils.BookmarkListAdapter;
+import com.freerdp.freerdpcore.utils.RDPFileHelper;
 
-import java.util.ArrayList;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 
 public class HomeActivity extends AppCompatActivity
 {
-	private final static String ADD_BOOKMARK_PLACEHOLDER = "add_bookmark";
 	private static final String TAG = "HomeActivity";
-	private static final String PARAM_SUPERBAR_TEXT = "superbar_text";
-	private ListView listViewBookmarks;
-	private Button clearTextButton;
-	private EditText superBarEditText;
-	private BookmarkArrayAdapter manualBookmarkAdapter;
-	private SeparatedListAdapter separatedListAdapter;
-	private PlaceholderBookmark addBookmarkPlaceholder;
-	private String sectionLabelBookmarks;
+	private static final String PARAM_SEARCH_QUERY = "search_query";
 
-	View mDecor;
+	private HomeBinding binding;
+	private HomeViewModel viewModel;
+	private BookmarkListAdapter bookmarkListAdapter;
+	private MenuItem searchMenuItem;
+	private SearchView searchView;
+
+	private ExternalDisplayManager externalDisplayManager;
 
 	@Override public void onCreate(Bundle savedInstanceState)
 	{
-		setTitle(R.string.title_home);
 		super.onCreate(savedInstanceState);
-		setContentView(R.layout.home);
+		binding = HomeBinding.inflate(getLayoutInflater());
+		setContentView(binding.getRoot());
 
-		mDecor = getWindow().getDecorView();
-		mDecor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-		                             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+		    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+		        PackageManager.PERMISSION_GRANTED)
+		{
+			requestPermissions(new String[] { Manifest.permission.POST_NOTIFICATIONS }, 0);
+		}
+
+		externalDisplayManager = new ExternalDisplayManager(this);
 
 		long heapSize = Runtime.getRuntime().maxMemory();
 		Log.i(TAG, "Max HeapSize: " + heapSize);
 		Log.i(TAG, "App data folder: " + getFilesDir().toString());
-
-		// load strings
-		sectionLabelBookmarks = getResources().getString(R.string.section_bookmarks);
-
-		// create add bookmark/quick connect bookmark placeholder
-		addBookmarkPlaceholder = new PlaceholderBookmark();
-		addBookmarkPlaceholder.setName(ADD_BOOKMARK_PLACEHOLDER);
-		addBookmarkPlaceholder.setLabel(
-		    getResources().getString(R.string.list_placeholder_add_bookmark));
 
 		// check for passed .rdp file and open it in a new bookmark
 		Intent caller = getIntent();
@@ -90,7 +81,7 @@ public class HomeActivity extends AppCompatActivity
 
 		if (Intent.ACTION_VIEW.equals(caller.getAction()) && callParameter != null)
 		{
-			String refStr = ConnectionReference.getFileReference(callParameter.getPath());
+			String refStr = ConnectionReference.getFileReference(callParameter.toString());
 			Bundle bundle = new Bundle();
 			bundle.putString(BookmarkActivity.PARAM_CONNECTION_REFERENCE, refStr);
 
@@ -100,237 +91,100 @@ public class HomeActivity extends AppCompatActivity
 			startActivity(bookmarkIntent);
 		}
 
-		// load views
-		clearTextButton = findViewById(R.id.clear_search_btn);
-		superBarEditText = findViewById(R.id.superBarEditText);
+		viewModel = new ViewModelProvider(this).get(HomeViewModel.class);
 
-		listViewBookmarks = findViewById(R.id.listViewBookmarks);
-
-		// set listeners for the list view
-		listViewBookmarks.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-			public void onItemClick(AdapterView<?> parent, View view, int position, long id)
+		bookmarkListAdapter = new BookmarkListAdapter();
+		bookmarkListAdapter.setCallbacks(new BookmarkListAdapter.Callbacks() {
+			@Override public void onItemClick(String refStr)
 			{
-				String curSection = separatedListAdapter.getSectionForPosition(position);
-				Log.v(TAG, "Clicked on item id " + separatedListAdapter.getItemId(position) +
-				               " in section " + curSection);
-				if (curSection.equals(sectionLabelBookmarks))
+				if (ConnectionReference.isBookmarkReference(refStr) ||
+				    ConnectionReference.isHostnameReference(refStr))
 				{
-					String refStr = view.getTag().toString();
-					if (ConnectionReference.isManualBookmarkReference(refStr) ||
-					    ConnectionReference.isHostnameReference(refStr))
-					{
-						Bundle bundle = new Bundle();
-						bundle.putString(SessionActivity.PARAM_CONNECTION_REFERENCE, refStr);
+					externalDisplayManager.launchSessionWithDisplayPicker(refStr);
 
-						Intent sessionIntent = new Intent(view.getContext(), SessionActivity.class);
-						sessionIntent.putExtras(bundle);
-						startActivity(sessionIntent);
-
-						// clear any search text
-						superBarEditText.setText("");
-						superBarEditText.clearFocus();
-					}
-					else if (ConnectionReference.isPlaceholderReference(refStr))
+					if (searchView != null)
 					{
-						// is this the add bookmark placeholder?
-						if (ConnectionReference.getPlaceholder(refStr).equals(
-						        ADD_BOOKMARK_PLACEHOLDER))
-						{
-							Intent bookmarkIntent =
-							    new Intent(view.getContext(), BookmarkActivity.class);
-							startActivity(bookmarkIntent);
-						}
+						searchView.setQuery("", false);
+						searchView.setIconified(true);
 					}
+					if (searchMenuItem != null)
+					{
+						searchMenuItem.collapseActionView();
+					}
+					viewModel.loadBookmarks("");
+				}
+			}
+
+			@Override public void onDelete(long id)
+			{
+				viewModel.deleteBookmark(id);
+			}
+
+			@Override public void onExport(BookmarkBase bookmark)
+			{
+				shareRdpFile(bookmark);
+			}
+		});
+
+		binding.recyclerViewBookmarks.setLayoutManager(new LinearLayoutManager(this));
+		binding.recyclerViewBookmarks.setAdapter(bookmarkListAdapter);
+
+		viewModel.getBookmarks().observe(this,
+		                                 bookmarks -> bookmarkListAdapter.setItems(bookmarks));
+
+		// restore search query after process death
+		if (savedInstanceState != null)
+		{
+			String query = savedInstanceState.getString(PARAM_SEARCH_QUERY);
+			if (query != null && !query.isEmpty() && viewModel.getCurrentQuery().isEmpty())
+			{
+				viewModel.loadBookmarks(query);
+			}
+		}
+
+		getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+			@Override public void handleOnBackPressed()
+			{
+				if (ApplicationSettingsActivity.getAskOnExit(HomeActivity.this))
+				{
+					new AlertDialog.Builder(HomeActivity.this)
+					    .setTitle(R.string.dlg_title_exit)
+					    .setMessage(R.string.dlg_msg_exit)
+					    .setPositiveButton(R.string.yes, (dialog, which) -> finish())
+					    .setNegativeButton(R.string.no, (dialog, which) -> dialog.dismiss())
+					    .show();
+				}
+				else
+				{
+					finish();
 				}
 			}
 		});
-
-		listViewBookmarks.setOnCreateContextMenuListener(new OnCreateContextMenuListener() {
-			@Override
-			public void onCreateContextMenu(ContextMenu menu, View v, ContextMenuInfo menuInfo)
-			{
-				// if the selected item is not a session item (tag == null) and not a quick connect
-				// entry (not a hostname connection reference) inflate the context menu
-				View itemView = ((AdapterContextMenuInfo)menuInfo).targetView;
-				String refStr = itemView.getTag() != null ? itemView.getTag().toString() : null;
-				if (refStr != null && !ConnectionReference.isHostnameReference(refStr) &&
-				    !ConnectionReference.isPlaceholderReference(refStr))
-				{
-					getMenuInflater().inflate(R.menu.bookmark_context_menu, menu);
-					menu.setHeaderTitle(getResources().getString(R.string.menu_title_bookmark));
-				}
-			}
-		});
-
-		superBarEditText.addTextChangedListener(new SuperBarTextWatcher());
-
-		clearTextButton.setOnClickListener(new OnClickListener() {
-			@Override public void onClick(View v)
-			{
-				superBarEditText.setText("");
-			}
-		});
-	}
-
-	@Override public void onConfigurationChanged(Configuration newConfig)
-	{
-		// ignore orientation/keyboard change
-		super.onConfigurationChanged(newConfig);
-		mDecor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
-		                             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-	}
-
-	@Override public boolean onSearchRequested()
-	{
-		superBarEditText.requestFocus();
-		return true;
-	}
-
-	@Override public boolean onContextItemSelected(MenuItem aItem)
-	{
-
-		// get connection reference
-		AdapterContextMenuInfo menuInfo = (AdapterContextMenuInfo)aItem.getMenuInfo();
-		String refStr = menuInfo.targetView.getTag().toString();
-
-		// refer to http://tools.android.com/tips/non-constant-fields why we can't use switch/case
-		// here ..
-		int itemId = aItem.getItemId();
-		if (itemId == R.id.bookmark_connect)
-		{
-			Bundle bundle = new Bundle();
-			bundle.putString(SessionActivity.PARAM_CONNECTION_REFERENCE, refStr);
-			Intent sessionIntent = new Intent(this, SessionActivity.class);
-			sessionIntent.putExtras(bundle);
-
-			startActivity(sessionIntent);
-			return true;
-		}
-		else if (itemId == R.id.bookmark_edit)
-		{
-			Bundle bundle = new Bundle();
-			bundle.putString(BookmarkActivity.PARAM_CONNECTION_REFERENCE, refStr);
-
-			Intent bookmarkIntent =
-			    new Intent(this.getApplicationContext(), BookmarkActivity.class);
-			bookmarkIntent.putExtras(bundle);
-			startActivity(bookmarkIntent);
-			return true;
-		}
-		else if (itemId == R.id.bookmark_delete)
-		{
-			if (ConnectionReference.isManualBookmarkReference(refStr))
-			{
-				long id = ConnectionReference.getManualBookmarkId(refStr);
-				GlobalApp.getManualBookmarkGateway().delete(id);
-				manualBookmarkAdapter.remove(id);
-				separatedListAdapter.notifyDataSetChanged();
-			}
-			else
-			{
-				assert false;
-			}
-
-			// clear super bar text
-			superBarEditText.setText("");
-			return true;
-		}
-
-		return false;
 	}
 
 	@Override protected void onResume()
 	{
 		super.onResume();
 		Log.v(TAG, "HomeActivity.onResume");
-
-		// create bookmark cursor adapter
-		manualBookmarkAdapter = new BookmarkArrayAdapter(
-		    this, R.layout.bookmark_list_item, GlobalApp.getManualBookmarkGateway().findAll());
-
-		// add add bookmark item to manual adapter
-		manualBookmarkAdapter.insert(addBookmarkPlaceholder, 0);
-
-		// attach all adapters to the separatedListView adapter and assign it to the list view
-		separatedListAdapter = new SeparatedListAdapter(this);
-		separatedListAdapter.addSection(sectionLabelBookmarks, manualBookmarkAdapter);
-		listViewBookmarks.setAdapter(separatedListAdapter);
-
-		// if we have a filter text entered cause an update to be caused here
-		String filter = superBarEditText.getText().toString();
-		if (filter.length() > 0)
-			superBarEditText.setText(filter);
-	}
-
-	@Override protected void onPause()
-	{
-		super.onPause();
-		Log.v(TAG, "HomeActivity.onPause");
-
-		// reset adapters
-		listViewBookmarks.setAdapter(null);
-		separatedListAdapter = null;
-		manualBookmarkAdapter = null;
-	}
-
-	@Override public void onBackPressed()
-	{
-		// if back was pressed - ask the user if he really wants to exit
-		if (ApplicationSettingsActivity.getAskOnExit(this))
-		{
-			final CheckBox cb = new CheckBox(this);
-			cb.setChecked(!ApplicationSettingsActivity.getAskOnExit(this));
-			cb.setText(R.string.dlg_dont_show_again);
-
-			AlertDialog.Builder builder = new AlertDialog.Builder(this);
-			builder.setTitle(R.string.dlg_title_exit)
-			    .setMessage(R.string.dlg_msg_exit)
-			    .setView(cb)
-			    .setPositiveButton(R.string.yes,
-			                       new DialogInterface.OnClickListener() {
-				                       public void onClick(DialogInterface dialog, int which)
-				                       {
-					                       finish();
-				                       }
-			                       })
-			    .setNegativeButton(R.string.no,
-			                       new DialogInterface.OnClickListener() {
-				                       public void onClick(DialogInterface dialog, int which)
-				                       {
-					                       dialog.dismiss();
-				                       }
-			                       })
-			    .create()
-			    .show();
-		}
-		else
-		{
-			super.onBackPressed();
-		}
+		viewModel.loadBookmarks(viewModel.getCurrentQuery());
 	}
 
 	@Override protected void onSaveInstanceState(Bundle outState)
 	{
 		super.onSaveInstanceState(outState);
-		outState.putString(PARAM_SUPERBAR_TEXT, superBarEditText.getText().toString());
-	}
-
-	@Override protected void onRestoreInstanceState(Bundle inState)
-	{
-		super.onRestoreInstanceState(inState);
-		superBarEditText.setText(inState.getString(PARAM_SUPERBAR_TEXT));
+		outState.putString(PARAM_SEARCH_QUERY, viewModel.getCurrentQuery());
 	}
 
 	@Override public boolean onCreateOptionsMenu(Menu menu)
 	{
 		MenuInflater inflater = getMenuInflater();
 		inflater.inflate(R.menu.home_menu, menu);
+		setupSearchView(menu);
 		return true;
 	}
 
 	@Override public boolean onOptionsItemSelected(MenuItem item)
 	{
-
 		// refer to http://tools.android.com/tips/non-constant-fields why we can't use switch/case
 		// here ..
 		int itemId = item.getItemId();
@@ -358,42 +212,55 @@ public class HomeActivity extends AppCompatActivity
 		return true;
 	}
 
-	private class SuperBarTextWatcher implements TextWatcher
+	private void shareRdpFile(BookmarkBase bookmark)
 	{
-		@Override public void afterTextChanged(Editable s)
+		String filename = bookmark.getLabel().replaceAll("[^\\w. -]", "_") + ".rdp";
+		File file = new File(getCacheDir(), filename);
+		try (FileOutputStream out = new FileOutputStream(file))
 		{
-			if (separatedListAdapter != null)
+			out.write(RDPFileHelper.toRdpString(bookmark).getBytes(StandardCharsets.UTF_8));
+		}
+		catch (IOException e)
+		{
+			Log.e(TAG, "Failed to write RDP file for sharing", e);
+			Toast.makeText(this, R.string.export_failed, Toast.LENGTH_SHORT).show();
+			return;
+		}
+		Uri uri = FileProvider.getUriForFile(this, "com.freerdp.afreerdp.fileprovider", file);
+		Intent share = new Intent(Intent.ACTION_SEND);
+		share.setType("application/x-rdp");
+		share.putExtra(Intent.EXTRA_STREAM, uri);
+		share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+		startActivity(Intent.createChooser(share, bookmark.getLabel()));
+	}
+
+	private void setupSearchView(Menu menu)
+	{
+		searchMenuItem = menu.findItem(R.id.action_search);
+		if (searchMenuItem != null)
+		{
+			searchView = (SearchView)searchMenuItem.getActionView();
+
+			String currentQuery = viewModel.getCurrentQuery();
+			if (currentQuery != null && !currentQuery.isEmpty())
 			{
-				String text = s.toString();
-				if (text.length() > 0)
-				{
-					ArrayList<BookmarkBase> computers_list =
-					    GlobalApp.getQuickConnectHistoryGateway().findHistory(text);
-					computers_list.addAll(
-					    GlobalApp.getManualBookmarkGateway().findByLabelOrHostnameLike(text));
-					manualBookmarkAdapter.replaceItems(computers_list);
-					QuickConnectBookmark qcBm = new QuickConnectBookmark();
-					qcBm.setLabel(text);
-					qcBm.setHostname(text);
-					manualBookmarkAdapter.insert(qcBm, 0);
-				}
-				else
-				{
-					manualBookmarkAdapter.replaceItems(
-					    GlobalApp.getManualBookmarkGateway().findAll());
-					manualBookmarkAdapter.insert(addBookmarkPlaceholder, 0);
-				}
-
-				separatedListAdapter.notifyDataSetChanged();
+				searchMenuItem.expandActionView();
+				searchView.setQuery(currentQuery, false);
+				searchView.clearFocus();
 			}
-		}
 
-		@Override public void beforeTextChanged(CharSequence s, int start, int count, int after)
-		{
-		}
+			searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+				@Override public boolean onQueryTextSubmit(String query)
+				{
+					return true;
+				}
 
-		@Override public void onTextChanged(CharSequence s, int start, int before, int count)
-		{
+				@Override public boolean onQueryTextChange(String s)
+				{
+					viewModel.loadBookmarks(s);
+					return true;
+				}
+			});
 		}
 	}
 }

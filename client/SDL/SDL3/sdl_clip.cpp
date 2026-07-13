@@ -138,6 +138,8 @@ sdlClip::sdlClip(SdlContext* sdl)
 	std::stringstream ss;
 	ss << s_mime_freerdp_update << "-" << _uuid;
 	_mime_uuid = ss.str();
+
+	std::ignore = cliprdr_file_context_set_locally_available(_file, TRUE);
 }
 
 sdlClip::~sdlClip()
@@ -231,6 +233,7 @@ bool sdlClip::handleEvent(const SDL_ClipboardEvent& ev)
 
 	bool textPushed = false;
 	bool imgPushed = false;
+	bool filePushed = false;
 
 	for (size_t i = 0; i < nformats; i++)
 	{
@@ -275,6 +278,14 @@ bool sdlClip::handleEvent(const SDL_ClipboardEvent& ev)
 				imgPushed = true;
 			}
 		}
+		else if (mime_is_file(local_mime))
+		{
+			if (!filePushed)
+			{
+				clientFormatNames.emplace_back(s_type_FileGroupDescriptorW);
+				filePushed = true;
+			}
+		}
 	}
 
 	for (auto& name : clientFormatNames)
@@ -302,6 +313,9 @@ bool sdlClip::handleEvent(const SDL_ClipboardEvent& ev)
 		WLog_Print(_log, WLOG_TRACE, "client announces %" PRIu32 " [%s][%s]", format->formatId,
 		           ClipboardGetFormatIdString(format->formatId), format->formatName);
 	}
+
+	if (cliprdr_file_context_notify_new_client_format_list(_file) != CHANNEL_RC_OK)
+		return false;
 
 	WINPR_ASSERT(_ctx);
 	WINPR_ASSERT(_ctx->ClientFormatList);
@@ -480,8 +494,8 @@ UINT sdlClip::ReceiveServerFormatList(CliprdrClientContext* context,
 	if (!context || !context->custom)
 		return ERROR_INVALID_PARAMETER;
 
-	auto clipboard = static_cast<sdlClip*>(
-	    cliprdr_file_context_get_context(static_cast<CliprdrFileContext*>(context->custom)));
+	auto filecontext = static_cast<CliprdrFileContext*>(context->custom);
+	auto clipboard = static_cast<sdlClip*>(cliprdr_file_context_get_context(filecontext));
 	WINPR_ASSERT(clipboard);
 
 	clipboard->clearServerFormats();
@@ -526,6 +540,15 @@ UINT sdlClip::ReceiveServerFormatList(CliprdrClientContext* context,
 	}
 
 	clipboard->_current_mimetypes.clear();
+
+	{
+		ClipboardLockGuard systemlock(clipboard->_system);
+		std::scoped_lock lock(clipboard->_lock);
+		auto res = cliprdr_file_context_notify_new_server_format_list(filecontext);
+		if (res != CHANNEL_RC_OK)
+			return res;
+	}
+
 	if (text)
 	{
 		clipboard->_current_mimetypes.insert(clipboard->_current_mimetypes.end(),
@@ -609,7 +632,7 @@ std::shared_ptr<BYTE> sdlClip::ReceiveFormatDataRequestHandle(
 
 		case CF_DIB:
 		case CF_DIBV5:
-			mime = s_mime_bitmap()[0];
+			mime = s_mime_bitmap().at(0);
 			localFormatId = ClipboardGetFormatId(clipboard->_system, mime);
 			break;
 
@@ -645,7 +668,16 @@ std::shared_ptr<BYTE> sdlClip::ReceiveFormatDataRequestHandle(
 				}
 			}
 			else
-				return data;
+			{
+				const char* formatName = ClipboardGetFormatName(clipboard->_system, formatId);
+				if (formatName && SDL_HasClipboardData(formatName))
+				{
+					localFormatId = ClipboardGetFormatId(clipboard->_system, formatName);
+					mime = formatName;
+				}
+				else
+					return data;
+			}
 	}
 
 	{
@@ -771,9 +803,15 @@ UINT sdlClip::ReceiveFormatDataResponse(CliprdrClientContext* context,
 						srcFormatId =
 						    ClipboardGetFormatId(clipboard->_system, s_type_FileGroupDescriptorW);
 
-						if (!cliprdr_file_context_update_server_data(
-						        clipboard->_file, clipboard->_system, data, size))
-							return ERROR_INTERNAL_ERROR;
+						if (cliprdr_file_context_has_local_support(clipboard->_file))
+						{
+							if (!cliprdr_file_context_update_server_data(
+							        clipboard->_file, clipboard->_system, data, size))
+							{
+								WLog_Print(clipboard->_log, WLOG_WARN,
+								           "File clipboard failed to update");
+							}
+						}
 					}
 					else if (name == s_type_HtmlFormat)
 					{

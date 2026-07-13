@@ -300,12 +300,14 @@ extern "C"
 	} TARGET_NET_ADDRESS;
 
 /* Logon Error Info */
+#define LOGON_MSG_SESSION_BUSY_OPTIONS 0xFFFFFFF8
 #define LOGON_MSG_DISCONNECT_REFUSED 0xFFFFFFF9
 #define LOGON_MSG_NO_PERMISSION 0xFFFFFFFA
 #define LOGON_MSG_BUMP_OPTIONS 0xFFFFFFFB
 #define LOGON_MSG_RECONNECT_OPTIONS 0xFFFFFFFC
 #define LOGON_MSG_SESSION_TERMINATE 0xFFFFFFFD
 #define LOGON_MSG_SESSION_CONTINUE 0xFFFFFFFE
+#define ERROR_CODE_ACCESS_DENIED 0xFFFFFFFF
 
 #define LOGON_FAILED_BAD_PASSWORD 0x00000000
 #define LOGON_FAILED_UPDATE_PASSWORD 0x00000001
@@ -328,14 +330,14 @@ extern "C"
 #define PACKET_COMPR_TYPE_RDP61 0x03
 #define PACKET_COMPR_TYPE_RDP8 0x04
 
-/* Desktop Rotation Flags */
-enum FreeRDP_DesktopRotationFlags
-{
-	ORIENTATION_LANDSCAPE = 0,
-	ORIENTATION_PORTRAIT = 90,
-	ORIENTATION_LANDSCAPE_FLIPPED = 180,
-	ORIENTATION_PORTRAIT_FLIPPED = 270
-};
+	/* Desktop Rotation Flags */
+	enum FreeRDP_DesktopRotationFlags
+	{
+		ORIENTATION_LANDSCAPE = 0,
+		ORIENTATION_PORTRAIT = 90,
+		ORIENTATION_LANDSCAPE_FLIPPED = 180,
+		ORIENTATION_PORTRAIT_FLIPPED = 270
+	};
 
 /* Clipboard feature mask */
 #define CLIPRDR_FLAG_LOCAL_TO_REMOTE 0x01
@@ -348,9 +350,24 @@ enum FreeRDP_DesktopRotationFlags
 	 CLIPRDR_FLAG_REMOTE_TO_LOCAL | CLIPRDR_FLAG_REMOTE_TO_LOCAL_FILES)
 
 	/* Commandline helper defines */
-#define FREERDP_MONITOR_OVERRIDE_ORIENTATION (1 << 0)   /** @since version 3.15.0 */
-#define FREERDP_MONITOR_OVERRIDE_DESKTOP_SCALE (1 << 1) /** @since version 3.15.0 */
-#define FREERDP_MONITOR_OVERRIDE_DEVICE_SCALE (1 << 2)  /** @since version 3.15.0 */
+#define FREERDP_MONITOR_OVERRIDE_ORIENTATION (1u << 0)   /** @since version 3.15.0 */
+#define FREERDP_MONITOR_OVERRIDE_DESKTOP_SCALE (1u << 1) /** @since version 3.15.0 */
+#define FREERDP_MONITOR_OVERRIDE_DEVICE_SCALE (1u << 2)  /** @since version 3.15.0 */
+
+	/** @brief convenience names for
+	 * https://docs.openssl.org/3.0/man3/SSL_CTX_set_security_level/#default-callback-behaviour
+	 *
+	 *  @since version 3.27.0
+	 */
+	typedef enum
+	{
+		FREERDP_TLS_SECLEVEL_0 = 0,
+		FREERDP_TLS_SECLEVEL_80BIT = 1,
+		FREERDP_TLS_SECLEVEL_112BIT = 2,
+		FREERDP_TLS_SECLEVEL_128BIT = 3,
+		FREERDP_TLS_SECLEVEL_192BIT = 4,
+		FREERDP_TLS_SECLEVEL_256BIT = 5
+	} FreeRDP_TLS_SecLevel;
 
 	/* ARC_CS_PRIVATE_PACKET */
 	typedef struct

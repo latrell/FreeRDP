@@ -101,39 +101,62 @@ extern "C"
 		void* handle;
 		void* custom;
 
-		pcRailClientExecute ClientExecute;
-		pcRailClientActivate ClientActivate;
-		pcRailClientSystemParam ClientSystemParam;
-		pcRailServerSystemParam ServerSystemParam;
-		pcRailClientSystemCommand ClientSystemCommand;
-		pcRailClientHandshake ClientHandshake;
-		pcRailServerHandshake ServerHandshake;
-		pcRailServerHandshakeEx ServerHandshakeEx;
-		pcRailClientNotifyEvent ClientNotifyEvent;
-		pcRailClientWindowMove ClientWindowMove;
-		pcRailServerLocalMoveSize ServerLocalMoveSize;
-		pcRailServerMinMaxInfo ServerMinMaxInfo;
-		pcRailClientInformation ClientInformation;
-		pcRailClientSystemMenu ClientSystemMenu;
-		pcRailServerTaskBarInfo ServerTaskBarInfo;
-		pcRailClientLanguageBarInfo ClientLanguageBarInfo;
-		pcRailServerLanguageBarInfo ServerLanguageBarInfo;
-		pcRailClientLanguageIMEInfo ClientLanguageIMEInfo;
-		pcRailServerExecuteResult ServerExecuteResult;
-		pcRailClientGetAppIdRequest ClientGetAppIdRequest;
-		pcRailServerGetAppIdResponse ServerGetAppIdResponse;
-		pcRailServerZOrderSync ServerZOrderSync;
-		pcRailClientCloak ClientCloak;
-		pcRailServerCloak ServerCloak;
-		pcRailServerPowerDisplayRequest ServerPowerDisplayRequest;
-		pcRailClientSnapArrange ClientSnapArrange;
-		pcRailServerGetAppidResponseExtended ServerGetAppidResponseExtended;
-		pcRailClientCompartmentInfo ClientCompartmentInfo;
-		pcRailOnOpen OnOpen;
-		pcRailClientTextScale ClientTextScale;
-		pcRailClientCaretBlinkRate ClientCaretBlinkRate;
+		WINPR_ATTR_NODISCARD pcRailClientExecute ClientExecute;
+		WINPR_ATTR_NODISCARD pcRailClientActivate ClientActivate;
+		WINPR_ATTR_NODISCARD pcRailClientSystemParam ClientSystemParam;
+		WINPR_ATTR_NODISCARD pcRailServerSystemParam ServerSystemParam;
+		WINPR_ATTR_NODISCARD pcRailClientSystemCommand ClientSystemCommand;
+		WINPR_ATTR_NODISCARD pcRailClientHandshake ClientHandshake;
+
+		/** @brief (optional) callback when a [MS-RDPERP] 2.2.2.2.1 Handshake PDU
+		 * (TS_RAIL_ORDER_HANDSHAKE) is received. A default implementation exists and responds with
+		 * the current \ref FreeRDP_ClientBuild
+		 *
+		 *  @bug before 3.27.0 the response was sent before this callback was invoked. Now the
+		 * default implementation provides this and if overridden by client implementations they
+		 * must handle the response themselves.
+		 */
+		WINPR_ATTR_NODISCARD pcRailServerHandshake ServerHandshake;
+
+		/** @brief (optional) callback when a [MS-RDPERP] 2.2.2.2.3 HandshakeEx PDU
+		 * (TS_RAIL_ORDER_HANDSHAKE_EX) is received. A default implementation exists and responds
+		 * with the current \ref FreeRDP_ClientBuild
+		 *
+		 *  @bug before 3.27.0 the response was sent before this callback was invoked. Now the
+		 * default implementation provides this and if overridden by client implementations they
+		 * must handle the response themselves.
+		 */
+		WINPR_ATTR_NODISCARD pcRailServerHandshakeEx ServerHandshakeEx;
+		WINPR_ATTR_NODISCARD pcRailClientNotifyEvent ClientNotifyEvent;
+		WINPR_ATTR_NODISCARD pcRailClientWindowMove ClientWindowMove;
+		WINPR_ATTR_NODISCARD pcRailServerLocalMoveSize ServerLocalMoveSize;
+		WINPR_ATTR_NODISCARD pcRailServerMinMaxInfo ServerMinMaxInfo;
+		WINPR_ATTR_NODISCARD pcRailClientInformation ClientInformation;
+		WINPR_ATTR_NODISCARD pcRailClientSystemMenu ClientSystemMenu;
+		WINPR_ATTR_NODISCARD pcRailServerTaskBarInfo ServerTaskBarInfo;
+		WINPR_ATTR_NODISCARD pcRailClientLanguageBarInfo ClientLanguageBarInfo;
+		WINPR_ATTR_NODISCARD pcRailServerLanguageBarInfo ServerLanguageBarInfo;
+		WINPR_ATTR_NODISCARD pcRailClientLanguageIMEInfo ClientLanguageIMEInfo;
+		WINPR_ATTR_NODISCARD pcRailServerExecuteResult ServerExecuteResult;
+		WINPR_ATTR_NODISCARD pcRailClientGetAppIdRequest ClientGetAppIdRequest;
+		WINPR_ATTR_NODISCARD pcRailServerGetAppIdResponse ServerGetAppIdResponse;
+		WINPR_ATTR_NODISCARD pcRailServerZOrderSync ServerZOrderSync;
+		WINPR_ATTR_NODISCARD pcRailClientCloak ClientCloak;
+		WINPR_ATTR_NODISCARD pcRailServerCloak ServerCloak;
+		WINPR_ATTR_NODISCARD pcRailServerPowerDisplayRequest ServerPowerDisplayRequest;
+		WINPR_ATTR_NODISCARD pcRailClientSnapArrange ClientSnapArrange;
+		WINPR_ATTR_NODISCARD pcRailServerGetAppidResponseExtended ServerGetAppidResponseExtended;
+		WINPR_ATTR_NODISCARD pcRailClientCompartmentInfo ClientCompartmentInfo;
+#if !defined(WITHOUT_FREERDP_3x_DEPRECATED)
+		WINPR_DEPRECATED_VAR("[since 3.27.0] unused", WINPR_ATTR_NODISCARD pcRailOnOpen OnOpen);
+#else
+	    void* reserved;
+#endif
+		WINPR_ATTR_NODISCARD pcRailClientTextScale ClientTextScale;
+		WINPR_ATTR_NODISCARD pcRailClientCaretBlinkRate ClientCaretBlinkRate;
 	};
 
+	WINPR_ATTR_NODISCARD
 	FREERDP_API UINT client_rail_server_start_cmd(RailClientContext* context);
 
 #ifdef __cplusplus

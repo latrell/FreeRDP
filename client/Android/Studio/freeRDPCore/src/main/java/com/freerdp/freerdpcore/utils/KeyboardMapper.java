@@ -11,6 +11,7 @@
 package com.freerdp.freerdpcore.utils;
 
 import android.content.Context;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 
 import com.freerdp.freerdpcore.R;
@@ -226,6 +227,8 @@ public class KeyboardMapper
 	private boolean isCtrlLocked = false;
 	private boolean isAltLocked = false;
 	private boolean isWinLocked = false;
+	private boolean isWinKeyDown = false;
+	private boolean isWinComboUsed = false;
 
 	public void init(Context context)
 	{
@@ -276,37 +279,72 @@ public class KeyboardMapper
 		keymapAndroid[KeyEvent.KEYCODE_ENTER] = VK_RETURN;
 		keymapAndroid[KeyEvent.KEYCODE_SPACE] = VK_SPACE;
 		keymapAndroid[KeyEvent.KEYCODE_TAB] = VK_TAB;
+		keymapAndroid[KeyEvent.KEYCODE_ESCAPE] = VK_ESCAPE;
+		keymapAndroid[KeyEvent.KEYCODE_CAPS_LOCK] = VK_CAPITAL;
 		//		keymapAndroid[KeyEvent.KEYCODE_SHIFT_LEFT] = VK_LSHIFT;
 		//		keymapAndroid[KeyEvent.KEYCODE_SHIFT_RIGHT] = VK_RSHIFT;
 
-		//		keymapAndroid[KeyEvent.KEYCODE_DPAD_DOWN] = VK_DOWN;
-		//		keymapAndroid[KeyEvent.KEYCODE_DPAD_LEFT] = VK_LEFT;
-		//		keymapAndroid[KeyEvent.KEYCODE_DPAD_RIGHT] = VK_RIGHT;
-		//		keymapAndroid[KeyEvent.KEYCODE_DPAD_UP] = VK_UP;
+		keymapAndroid[KeyEvent.KEYCODE_DPAD_DOWN] = VK_DOWN | VK_EXT_KEY;
+		keymapAndroid[KeyEvent.KEYCODE_DPAD_LEFT] = VK_LEFT | VK_EXT_KEY;
+		keymapAndroid[KeyEvent.KEYCODE_DPAD_RIGHT] = VK_RIGHT | VK_EXT_KEY;
+		keymapAndroid[KeyEvent.KEYCODE_DPAD_UP] = VK_UP | VK_EXT_KEY;
+		keymapAndroid[KeyEvent.KEYCODE_MOVE_HOME] = VK_HOME | VK_EXT_KEY;
+		keymapAndroid[KeyEvent.KEYCODE_MOVE_END] = VK_END | VK_EXT_KEY;
+		keymapAndroid[KeyEvent.KEYCODE_PAGE_UP] = VK_PRIOR | VK_EXT_KEY;
+		keymapAndroid[KeyEvent.KEYCODE_PAGE_DOWN] = VK_NEXT | VK_EXT_KEY;
+		keymapAndroid[KeyEvent.KEYCODE_FORWARD_DEL] = VK_DELETE | VK_EXT_KEY;
+		keymapAndroid[KeyEvent.KEYCODE_INSERT] = VK_INSERT | VK_EXT_KEY;
 
-		//		keymapAndroid[KeyEvent.KEYCODE_COMMA] = VK_OEM_COMMA;
-		//		keymapAndroid[KeyEvent.KEYCODE_PERIOD] = VK_OEM_PERIOD;
-		//		keymapAndroid[KeyEvent.KEYCODE_MINUS] = VK_OEM_MINUS;
-		//		keymapAndroid[KeyEvent.KEYCODE_PLUS] = VK_OEM_PLUS;
+		keymapAndroid[KeyEvent.KEYCODE_MINUS] = VK_OEM_MINUS;
+		keymapAndroid[KeyEvent.KEYCODE_EQUALS] = VK_OEM_PLUS;
+		keymapAndroid[KeyEvent.KEYCODE_LEFT_BRACKET] = VK_OEM_4;
+		keymapAndroid[KeyEvent.KEYCODE_RIGHT_BRACKET] = VK_OEM_6;
+		keymapAndroid[KeyEvent.KEYCODE_BACKSLASH] = VK_OEM_5;
+		keymapAndroid[KeyEvent.KEYCODE_SEMICOLON] = VK_OEM_1;
+		keymapAndroid[KeyEvent.KEYCODE_APOSTROPHE] = VK_OEM_7;
+		keymapAndroid[KeyEvent.KEYCODE_GRAVE] = VK_OEM_3;
+		keymapAndroid[KeyEvent.KEYCODE_COMMA] = VK_OEM_COMMA;
+		keymapAndroid[KeyEvent.KEYCODE_PERIOD] = VK_OEM_PERIOD;
+		keymapAndroid[KeyEvent.KEYCODE_SLASH] = VK_OEM_2;
 
-		//		keymapAndroid[KeyEvent.KEYCODE_ALT_LEFT] = VK_LMENU;
-		//		keymapAndroid[KeyEvent.KEYCODE_ALT_RIGHT] = VK_RMENU;
+		keymapAndroid[KeyEvent.KEYCODE_F1] = VK_F1;
+		keymapAndroid[KeyEvent.KEYCODE_F2] = VK_F2;
+		keymapAndroid[KeyEvent.KEYCODE_F3] = VK_F3;
+		keymapAndroid[KeyEvent.KEYCODE_F4] = VK_F4;
+		keymapAndroid[KeyEvent.KEYCODE_F5] = VK_F5;
+		keymapAndroid[KeyEvent.KEYCODE_F6] = VK_F6;
+		keymapAndroid[KeyEvent.KEYCODE_F7] = VK_F7;
+		keymapAndroid[KeyEvent.KEYCODE_F8] = VK_F8;
+		keymapAndroid[KeyEvent.KEYCODE_F9] = VK_F9;
+		keymapAndroid[KeyEvent.KEYCODE_F10] = VK_F10;
+		keymapAndroid[KeyEvent.KEYCODE_F11] = VK_F11;
+		keymapAndroid[KeyEvent.KEYCODE_F12] = VK_F12;
 
-		//		keymapAndroid[KeyEvent.KEYCODE_AT] = (KEY_FLAG_UNICODE | 64);
-		//		keymapAndroid[KeyEvent.KEYCODE_APOSTROPHE] = (KEY_FLAG_UNICODE | 39);
-		//		keymapAndroid[KeyEvent.KEYCODE_BACKSLASH] = (KEY_FLAG_UNICODE | 92);
-		//		keymapAndroid[KeyEvent.KEYCODE_COMMA] = (KEY_FLAG_UNICODE | 44);
-		//		keymapAndroid[KeyEvent.KEYCODE_EQUALS] = (KEY_FLAG_UNICODE | 61);
-		//		keymapAndroid[KeyEvent.KEYCODE_GRAVE] = (KEY_FLAG_UNICODE | 96);
-		//		keymapAndroid[KeyEvent.KEYCODE_LEFT_BRACKET] = (KEY_FLAG_UNICODE | 91);
-		//		keymapAndroid[KeyEvent.KEYCODE_RIGHT_BRACKET] = (KEY_FLAG_UNICODE | 93);
-		//		keymapAndroid[KeyEvent.KEYCODE_MINUS] = (KEY_FLAG_UNICODE | 45);
-		//		keymapAndroid[KeyEvent.KEYCODE_PERIOD] = (KEY_FLAG_UNICODE | 46);
-		//		keymapAndroid[KeyEvent.KEYCODE_PLUS] = (KEY_FLAG_UNICODE | 43);
-		//		keymapAndroid[KeyEvent.KEYCODE_POUND] = (KEY_FLAG_UNICODE | 35);
-		//		keymapAndroid[KeyEvent.KEYCODE_SEMICOLON] = (KEY_FLAG_UNICODE | 59);
-		//		keymapAndroid[KeyEvent.KEYCODE_SLASH] = (KEY_FLAG_UNICODE | 47);
-		//		keymapAndroid[KeyEvent.KEYCODE_STAR] = (KEY_FLAG_UNICODE | 42);
+		keymapAndroid[KeyEvent.KEYCODE_NUM_LOCK] = VK_NUMLOCK;
+		keymapAndroid[KeyEvent.KEYCODE_SCROLL_LOCK] = VK_SCROLL;
+		keymapAndroid[KeyEvent.KEYCODE_SYSRQ] = VK_SNAPSHOT | VK_EXT_KEY;
+		keymapAndroid[KeyEvent.KEYCODE_BREAK] = VK_PAUSE;
+
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_0] = VK_NUMPAD0;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_1] = VK_NUMPAD1;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_2] = VK_NUMPAD2;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_3] = VK_NUMPAD3;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_4] = VK_NUMPAD4;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_5] = VK_NUMPAD5;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_6] = VK_NUMPAD6;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_7] = VK_NUMPAD7;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_8] = VK_NUMPAD8;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_9] = VK_NUMPAD9;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_DIVIDE] = VK_DIVIDE | VK_EXT_KEY;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_MULTIPLY] = VK_MULTIPLY;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_SUBTRACT] = VK_SUBTRACT;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_ADD] = VK_ADD;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_DOT] = VK_DECIMAL;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_COMMA] = VK_DECIMAL;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_ENTER] = VK_RETURN | VK_EXT_KEY;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_EQUALS] = KEY_FLAG_UNICODE | 61;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_LEFT_PAREN] = KEY_FLAG_UNICODE | 40;
+		keymapAndroid[KeyEvent.KEYCODE_NUMPAD_RIGHT_PAREN] = KEY_FLAG_UNICODE | 41;
 
 		// special keys mapping
 		keymapExt = new int[256];
@@ -410,6 +448,8 @@ public class KeyboardMapper
 		ctrlPressed = false;
 		altPressed = false;
 		winPressed = false;
+		isWinKeyDown = false;
+		isWinComboUsed = false;
 		setKeyProcessingListener(listener);
 	}
 
@@ -425,11 +465,37 @@ public class KeyboardMapper
 			// we only process down events
 			case KeyEvent.ACTION_UP:
 			{
+				if (event.getKeyCode() == KeyEvent.KEYCODE_META_LEFT ||
+				    event.getKeyCode() == KeyEvent.KEYCODE_META_RIGHT)
+				{
+					if (!isWinKeyDown)
+						return false;
+					isWinKeyDown = false;
+					if (!isWinComboUsed)
+					{
+						listener.processVirtualKey(VK_LWIN | VK_EXT_KEY, true);
+						listener.processVirtualKey(VK_LWIN | VK_EXT_KEY, false);
+					}
+					isWinComboUsed = false;
+					return true;
+				}
 				return false;
 			}
 
 			case KeyEvent.ACTION_DOWN:
 			{
+				/* Physical Win key: buffer until release to distinguish tap vs combo. */
+				if (event.getKeyCode() == KeyEvent.KEYCODE_META_LEFT ||
+				    event.getKeyCode() == KeyEvent.KEYCODE_META_RIGHT)
+				{
+					isWinKeyDown = true;
+					isWinComboUsed = false;
+					return true;
+				}
+
+				if (isWinKeyDown)
+					isWinComboUsed = true;
+
 				boolean modifierActive = isModifierPressed();
 				// if a modifier is pressed we will send a VK event (if possible) so that key
 				// combinations will be recognized correctly. Otherwise we will send the unicode
@@ -439,19 +505,33 @@ public class KeyboardMapper
 					listener.processUnicodeKey(vkcode & (~KEY_FLAG_UNICODE));
 				// if we got a valid vkcode send it - except for letters/numbers if a modifier is
 				// active
-				else if (vkcode > 0 &&
-				         (event.getMetaState() & (KeyEvent.META_ALT_ON | KeyEvent.META_SHIFT_ON |
-				                                  KeyEvent.META_SYM_ON)) == 0)
+				else if (vkcode > 0 && !event.isSymPressed())
 				{
+					boolean sendCtrl = !ctrlPressed && event.isCtrlPressed();
+					boolean sendAlt = !altPressed && event.isAltPressed();
+					boolean sendWin = !winPressed && isWinKeyDown;
+					boolean sendShift = !shiftPressed && event.isShiftPressed();
+
+					if (sendCtrl)
+						listener.processVirtualKey(VK_LCONTROL, true);
+					if (sendAlt)
+						listener.processVirtualKey(VK_LMENU, true);
+					if (sendWin)
+						listener.processVirtualKey(VK_LWIN | VK_EXT_KEY, true);
+					if (sendShift)
+						listener.processVirtualKey(VK_LSHIFT, true);
+
 					listener.processVirtualKey(vkcode, true);
 					listener.processVirtualKey(vkcode, false);
-				}
-				else if (event.isShiftPressed() && vkcode != 0)
-				{
-					listener.processVirtualKey(VK_LSHIFT, true);
-					listener.processVirtualKey(vkcode, true);
-					listener.processVirtualKey(vkcode, false);
-					listener.processVirtualKey(VK_LSHIFT, false);
+
+					if (sendShift)
+						listener.processVirtualKey(VK_LSHIFT, false);
+					if (sendWin)
+						listener.processVirtualKey(VK_LWIN | VK_EXT_KEY, false);
+					if (sendAlt)
+						listener.processVirtualKey(VK_LMENU, false);
+					if (sendCtrl)
+						listener.processVirtualKey(VK_LCONTROL, false);
 				}
 				else if (event.getUnicodeChar() != 0)
 					listener.processUnicodeKey(event.getUnicodeChar());
@@ -467,8 +547,11 @@ public class KeyboardMapper
 			case KeyEvent.ACTION_MULTIPLE:
 			{
 				String str = event.getCharacters();
-				for (int i = 0; i < str.length(); i++)
-					listener.processUnicodeKey(str.charAt(i));
+				if (str != null)
+				{
+					for (int i = 0; i < str.length(); i++)
+						listener.processUnicodeKey(str.charAt(i));
+				}
 				return true;
 			}
 
@@ -509,6 +592,38 @@ public class KeyboardMapper
 		}
 
 		resetModifierKeysAfterInput(false);
+	}
+
+	public void processUnicodeFallback(int unicodeKey)
+	{
+		KeyCharacterMap kcm = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD);
+		KeyEvent[] events = kcm.getEvents(new char[] { (char)unicodeKey });
+		if (events == null)
+			return;
+		for (KeyEvent event : events)
+		{
+			int vkcode = fallbackVkcode(event.getKeyCode());
+			if (vkcode > 0)
+				listener.processVirtualKey(vkcode, event.getAction() == KeyEvent.ACTION_DOWN);
+		}
+	}
+
+	private int fallbackVkcode(int keycode)
+	{
+		switch (keycode)
+		{
+			case KeyEvent.KEYCODE_SHIFT_LEFT:
+			case KeyEvent.KEYCODE_SHIFT_RIGHT:
+				return VK_LSHIFT;
+			case KeyEvent.KEYCODE_ALT_LEFT:
+			case KeyEvent.KEYCODE_ALT_RIGHT:
+				return VK_LMENU;
+			case KeyEvent.KEYCODE_CTRL_LEFT:
+			case KeyEvent.KEYCODE_CTRL_RIGHT:
+				return VK_LCONTROL;
+			default:
+				return getVirtualKeyCode(keycode);
+		}
 	}
 
 	public void sendAltF4()

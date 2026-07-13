@@ -41,6 +41,15 @@
 
 #include <limits.h>
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 202311L)
+#define WINPR_C23_ENUM_TYPE(x) : x /** 
+                               * @brief For C23 and up defines the type of the enum to the enclosed integer type
+                               * @since version 3.27.0
+*/
+#else
+#define WINPR_C23_ENUM_TYPE(x)
+#endif
+
 #if defined(_WIN32) || defined(__MINGW32__)
 #include <wtypes.h>
 
@@ -484,13 +493,13 @@ typedef const BYTE* LPCBYTE;
 #include <stdio.h>
 
 // NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-static inline int _fseeki64(FILE* fp, INT64 offset, int origin)
+WINPR_ATTR_NODISCARD static inline int _fseeki64(FILE* fp, INT64 offset, int origin)
 {
 	return fseeko(fp, offset, origin);
 }
 
 // NOLINTNEXTLINE(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp)
-static inline INT64 _ftelli64(FILE* fp)
+WINPR_ATTR_NODISCARD static inline INT64 _ftelli64(FILE* fp)
 {
 	return ftello(fp);
 }

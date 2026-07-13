@@ -326,15 +326,6 @@ CGFloat GetScrollGestureDelta()
 	return 10.0f;
 }
 
-// this hack activates the iphone's WWAN interface in case it is offline
-void WakeUpWWAN()
-{
-	NSURL *url = [[[NSURL alloc] initWithString:@"http://www.nonexistingdummyurl.com"] autorelease];
-	// NSData * data =
-	[NSData dataWithContentsOfURL:url]; // we don't need data but assigning one causes a "data not
-	                                    // used" compiler warning
-}
-
 #pragma mark System Info functions
 
 NSString *TSXGetPrimaryMACAddress(NSString *sep)
@@ -348,7 +339,7 @@ NSString *TSXGetPrimaryMACAddress(NSString *sep)
 		return macaddress;
 	}
 
-	for (struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next)
+	for (struct ifaddrs *cursor = addrs; cursor != nullptr; cursor = cursor->ifa_next)
 	{
 		if (strcmp(cursor->ifa_name, "en0"))
 			continue;
@@ -388,9 +379,9 @@ BOOL TSXDeviceHasJailBreak()
 NSString *TSXGetPlatform()
 {
 	size_t size;
-	sysctlbyname("hw.machine", NULL, &size, NULL, 0);
+	sysctlbyname("hw.machine", nullptr, &size, nullptr, 0);
 	char *machine = malloc(size);
-	sysctlbyname("hw.machine", machine, &size, NULL, 0);
+	sysctlbyname("hw.machine", machine, &size, nullptr, 0);
 	NSString *platform = [NSString stringWithCString:machine encoding:NSASCIIStringEncoding];
 	free(machine);
 	return platform;

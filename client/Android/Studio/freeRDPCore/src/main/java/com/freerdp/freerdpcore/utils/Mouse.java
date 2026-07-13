@@ -19,12 +19,14 @@ public class Mouse
 
 	private final static int PTRFLAGS_LBUTTON = 0x1000;
 	private final static int PTRFLAGS_RBUTTON = 0x2000;
+	private final static int PTRFLAGS_MBUTTON = 0x4000;
 
 	private final static int PTRFLAGS_DOWN = 0x8000;
 	private final static int PTRFLAGS_MOVE = 0x0800;
 
 	private final static int PTRFLAGS_WHEEL = 0x0200;
 	private final static int PTRFLAGS_WHEEL_NEGATIVE = 0x0100;
+	private final static int PTRFLAGS_HWHEEL = 0x0400;
 
 	public static int getLeftButtonEvent(Context context, boolean down)
 	{
@@ -40,6 +42,11 @@ public class Mouse
 			return (PTRFLAGS_LBUTTON | (down ? PTRFLAGS_DOWN : 0));
 		else
 			return (PTRFLAGS_RBUTTON | (down ? PTRFLAGS_DOWN : 0));
+	}
+
+	public static int getMiddleButtonEvent(boolean down)
+	{
+		return (PTRFLAGS_MBUTTON | (down ? PTRFLAGS_DOWN : 0));
 	}
 
 	public static int getMoveEvent()
@@ -59,6 +66,20 @@ public class Mouse
 			flags |= (PTRFLAGS_WHEEL_NEGATIVE | 0x0088);
 		else
 			flags |= 0x0078;
+		return flags;
+	}
+
+	public static int getHScrollEvent(Context context, boolean right)
+	{
+		int flags = PTRFLAGS_HWHEEL;
+
+		if (ApplicationSettingsActivity.getInvertScrolling(context))
+			right = !right;
+
+		if (right)
+			flags |= 0x0078;
+		else
+			flags |= (PTRFLAGS_WHEEL_NEGATIVE | 0x0088);
 		return flags;
 	}
 }

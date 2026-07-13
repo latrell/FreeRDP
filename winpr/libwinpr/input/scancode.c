@@ -166,59 +166,316 @@ static const DWORD KBD7X_1[128] = {
  *
  * https://kbdlayout.info/kbdkor/virtualkeys
  */
-// clang-format off
-static const DWORD KBD8T[128] = { 
-	VK_NONE,     VK_ESCAPE,         VK_KEY_1,      VK_KEY_3,    VK_KEY_4,     VK_KEY_5,    VK_KEY_6,
-	VK_KEY_7,    VK_KEY_8,	        VK_KEY_9,      VK_KEY_0,    VK_OEM_MINUS, VK_OEM_PLUS, VK_BACK,
-	VK_TAB,      VK_KEY_Q,          VK_KEY_W,      VK_KEY_E,    VK_KEY_R,     VK_KEY_T,    VK_KEY_Y,
-	VK_KEY_U,    VK_KEY_I,          VK_KEY_O,      VK_KEY_P,    VK_OEM_4,     VK_OEM_6,    VK_RETURN,
-	VK_LCONTROL, VK_KEY_A,          VK_KEY_S,      VK_KEY_D,    VK_KEY_F,     VK_KEY_G,    VK_KEY_H,
-	VK_KEY_J,    VK_KEY_K,          VK_KEY_L,      VK_OEM_1,    VK_OEM_7,     VK_OEM_3,    VK_LSHIFT,
-	VK_OEM_5,    VK_KEY_Z,          VK_KEY_X,      VK_KEY_C,    VK_KEY_V,     VK_KEY_B,    VK_KEY_N,
-	VK_KEY_M,    VK_OEM_COMMA,      VK_OEM_PERIOD, VK_OEM_2,    VK_RSHIFT,    VK_MULTIPLY, VK_LMENU,
-	VK_SPACE,    VK_CAPITAL,        VK_F1,         VK_F2,       VK_F3,        VK_F4,       VK_F5,
-	VK_F6,       VK_F7,             VK_F8,         VK_F9,       VK_F10,       VK_NUMLOCK,  VK_SCROLL,
-	VK_HOME,     VK_UP,             VK_PRIOR,      VK_SUBTRACT, VK_LEFT,      VK_CLEAR,    VK_RIGHT,
-	VK_ADD,      VK_END,            VK_DOWN,       VK_NEXT,     VK_INSERT,    VK_DELETE,   VK_SNAPSHOT,
-	VK_NONE,     VK_OEM_102,        VK_F11,        VK_F12,      VK_CLEAR,     VK_OEM_WSCTRL,VK_DBE_KATAKANA,
-	VK_OEM_JUMP, VK_DBE_FLUSHSTRING,VK_OEM_BACKTAB,VK_OEM_AUTO, VK_NONE,      VK_DBE_NOCODEINPUT,VK_HELP,
-	VK_NONE,     VK_F13,            VK_F14,        VK_F15,      VK_F16,       VK_F17,      VK_F18,
-	VK_F19,      VK_F20,            VK_F21,        VK_F22,      VK_F23,       VK_OEM_PA3,  VK_NONE,
-	VK_OEM_RESET,VK_NONE,           VK_ABNT_C1,    VK_NONE,     VK_NONE,      VK_F24,      VK_NONE,
-	VK_NONE,     VK_NONE,           VK_NONE,       VK_OEM_PA1,  VK_TAB,       VK_NONE,     VK_ABNT_C2,
-	VK_OEM_PA2 
+static const DWORD KBD8T[128] = { // break here
+	VK_NONE,        VK_ESCAPE,
+	VK_KEY_1,       VK_KEY_2,
+	VK_KEY_3,       VK_KEY_4,
+	VK_KEY_5,       VK_KEY_6,
+	VK_KEY_7,       VK_KEY_8,
+	VK_KEY_9,       VK_KEY_0,
+	VK_OEM_MINUS,   VK_OEM_PLUS,
+	VK_BACK,        VK_TAB,
+	VK_KEY_Q,       VK_KEY_W,
+	VK_KEY_E,       VK_KEY_R,
+	VK_KEY_T,       VK_KEY_Y,
+	VK_KEY_U,       VK_KEY_I,
+	VK_KEY_O,       VK_KEY_P,
+	VK_OEM_4,       VK_OEM_6,
+	VK_RETURN,      VK_LCONTROL,
+	VK_KEY_A,       VK_KEY_S,
+	VK_KEY_D,       VK_KEY_F,
+	VK_KEY_G,       VK_KEY_H,
+	VK_KEY_J,       VK_KEY_K,
+	VK_KEY_L,       VK_OEM_1,
+	VK_OEM_7,       VK_OEM_3,
+	VK_LSHIFT,      VK_OEM_5,
+	VK_KEY_Z,       VK_KEY_X,
+	VK_KEY_C,       VK_KEY_V,
+	VK_KEY_B,       VK_KEY_N,
+	VK_KEY_M,       VK_OEM_COMMA,
+	VK_OEM_PERIOD,  VK_OEM_2,
+	VK_RSHIFT,      VK_MULTIPLY,
+	VK_LMENU,       VK_SPACE,
+	VK_CAPITAL,     VK_F1,
+	VK_F2,          VK_F3,
+	VK_F4,          VK_F5,
+	VK_F6,          VK_F7,
+	VK_F8,          VK_F9,
+	VK_F10,         VK_NUMLOCK,
+	VK_SCROLL,      VK_HOME,
+	VK_UP,          VK_PRIOR,
+	VK_SUBTRACT,    VK_LEFT,
+	VK_CLEAR,       VK_RIGHT,
+	VK_ADD,         VK_END,
+	VK_DOWN,        VK_NEXT,
+	VK_INSERT,      VK_DELETE,
+	VK_SNAPSHOT,    VK_NONE,
+	VK_OEM_102,     VK_F11,
+	VK_F12,         VK_CLEAR,
+	VK_OEM_WSCTRL,  VK_DBE_KATAKANA,
+	VK_OEM_JUMP,    VK_DBE_FLUSHSTRING,
+	VK_OEM_BACKTAB, VK_OEM_AUTO,
+	VK_NONE,        VK_DBE_NOCODEINPUT,
+	VK_HELP,        VK_NONE,
+	VK_F13,         VK_F14,
+	VK_F15,         VK_F16,
+	VK_F17,         VK_F18,
+	VK_F19,         VK_F20,
+	VK_F21,         VK_F22,
+	VK_F23,         VK_OEM_PA3,
+	VK_NONE,        VK_OEM_RESET,
+	VK_NONE,        VK_ABNT_C1,
+	VK_NONE,        VK_NONE,
+	VK_F24,         VK_NONE,
+	VK_NONE,        VK_NONE,
+	VK_NONE,        VK_OEM_PA1,
+	VK_TAB,         VK_NONE,
+	VK_ABNT_C2,     VK_OEM_PA2
 };
 
-static const DWORD KBD8X[256] = {
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_MEDIA_PREV_TRACK,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_MEDIA_NEXT_TRACK,
-	VK_NONE, VK_NONE, VK_RETURN, VK_HANJA, VK_NONE, VK_NONE, VK_VOLUME_MUTE, VK_LAUNCH_APP2,
-	VK_MEDIA_PLAY_PAUSE, VK_NONE, VK_MEDIA_STOP, VK_NONE, VK_NONE, VK_NONE, VK_NONE,VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_VOLUME_DOWN, VK_NONE, VK_VOLUME_UP, VK_NONE,
-	VK_BROWSER_HOME, VK_NONE, VK_NONE, VK_DIVIDE, VK_NONE, VK_SNAPSHOT, VK_KANA, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_CANCEL, VK_HOME, VK_UP, VK_PRIOR, VK_NONE, VK_LEFT, VK_NONE, VK_RIGHT, VK_NONE,
-	VK_END, VK_DOWN,VK_NEXT, VK_INSERT, VK_DELETE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_LWIN, VK_RWIN, VK_APPS, VK_NONE, VK_SLEEP, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_BROWSER_SEARCH, VK_BROWSER_FAVORITES, VK_BROWSER_REFRESH,
-	VK_BROWSER_STOP, VK_BROWSER_FORWARD, VK_BROWSER_BACK,VK_LAUNCH_APP1, VK_LAUNCH_MAIL,
-	VK_LAUNCH_MEDIA_SELECT, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_HANJA,
-	VK_KANA, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
-	VK_NONE, VK_NONE, VK_NONE, VK_NONE
+static const DWORD KBD8X[256] = { // break here
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_MEDIA_PREV_TRACK,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_MEDIA_NEXT_TRACK,
+	VK_NONE,
+	VK_NONE,
+	VK_RETURN,
+	VK_HANJA,
+	VK_NONE,
+	VK_NONE,
+	VK_VOLUME_MUTE,
+	VK_LAUNCH_APP2,
+	VK_MEDIA_PLAY_PAUSE,
+	VK_NONE,
+	VK_MEDIA_STOP,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_VOLUME_DOWN,
+	VK_NONE,
+	VK_VOLUME_UP,
+	VK_NONE,
+	VK_BROWSER_HOME,
+	VK_NONE,
+	VK_NONE,
+	VK_DIVIDE,
+	VK_NONE,
+	VK_SNAPSHOT,
+	VK_KANA,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_CANCEL,
+	VK_HOME,
+	VK_UP,
+	VK_PRIOR,
+	VK_NONE,
+	VK_LEFT,
+	VK_NONE,
+	VK_RIGHT,
+	VK_NONE,
+	VK_END,
+	VK_DOWN,
+	VK_NEXT,
+	VK_INSERT,
+	VK_DELETE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_LWIN,
+	VK_RWIN,
+	VK_APPS,
+	VK_NONE,
+	VK_SLEEP,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_BROWSER_SEARCH,
+	VK_BROWSER_FAVORITES,
+	VK_BROWSER_REFRESH,
+	VK_BROWSER_STOP,
+	VK_BROWSER_FORWARD,
+	VK_BROWSER_BACK,
+	VK_LAUNCH_APP1,
+	VK_LAUNCH_MAIL,
+	VK_LAUNCH_MEDIA_SELECT,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_HANJA,
+	VK_KANA,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE,
+	VK_NONE
 };
-// clang-format on
 
 static const DWORD KBD8X_1[128] = {
 	VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE, VK_NONE,
@@ -276,21 +533,67 @@ DWORD GetVirtualKeyCodeFromVirtualScanCode(DWORD scancode, DWORD dwKeyboardType)
 	}
 }
 
-static DWORD get_scancode(DWORD vkcode, const DWORD* array, size_t arraysize, DWORD flag)
+static DWORD get_scancode(size_t offset, DWORD vkcode, const DWORD* array, size_t arraysize,
+                          DWORD flag)
 {
 	WINPR_ASSERT(array);
-	for (size_t x = 0; x < arraysize; x++)
+	for (size_t x = offset; x < arraysize; x++)
 	{
 		const DWORD cur = array[x];
 		if (cur == vkcode)
-			return WINPR_ASSERTING_INT_CAST(DWORD, x) | flag;
+		{
+			const DWORD sc = WINPR_ASSERTING_INT_CAST(DWORD, x);
+			if (sc == 0)
+				return 0;
+			return sc | flag;
+		}
 	}
-	return VK_NONE;
+	return 0;
+}
+
+static DWORD get_scancodes(DWORD vkcode, const DWORD* array, size_t arraysize, DWORD flag,
+                           DWORD* pdwScanCodeBuffer, size_t ScanCodeBufferSize)
+{
+	WINPR_ASSERT(array);
+	size_t offset = 0;
+	DWORD count = 0;
+
+	DWORD sc = 0;
+	const BOOL nobuffer = ScanCodeBufferSize == 0;
+	do
+	{
+		sc = get_scancode(offset, vkcode, array, arraysize, flag);
+		if (sc != 0)
+		{
+			if (!nobuffer)
+			{
+				if (count < ScanCodeBufferSize)
+					pdwScanCodeBuffer[count] = sc;
+			}
+			count++;
+			offset = (sc & ~flag) + 1;
+		}
+	} while ((sc != 0) && ((count < ScanCodeBufferSize) || nobuffer));
+
+	return count;
 }
 
 DWORD GetVirtualScanCodeFromVirtualKeyCode(DWORD vkcode, DWORD dwKeyboardType)
 {
+	DWORD scancodes[1] = WINPR_C_ARRAY_INIT;
+	const DWORD count = GetVirtualScanCodesFromVirtualKeyCode(vkcode, dwKeyboardType, scancodes,
+	                                                          ARRAYSIZE(scancodes));
+	if (count == 0)
+		return 0;
+	return scancodes[0];
+}
+
+DWORD GetVirtualScanCodesFromVirtualKeyCode(DWORD vkcode, DWORD /* WINPR_KBD_TYPE */ dwKeyboardType,
+                                            DWORD* pdwScanCodeBuffer, size_t ScanCodeBufferSize)
+{
 	DWORD codeIndex = vkcode & 0xFF;
+	if (codeIndex == VK_NONE)
+		return 0;
 
 	switch (dwKeyboardType)
 	{
@@ -299,26 +602,35 @@ DWORD GetVirtualScanCodeFromVirtualKeyCode(DWORD vkcode, DWORD dwKeyboardType)
 		case WINPR_KBD_TYPE_IBM_PC_AT:
 		case WINPR_KBD_TYPE_IBM_ENHANCED:
 			if (vkcode & KBDMULTIVK)
-				return get_scancode(codeIndex, KBD4X_1, ARRAYSIZE(KBD4X_1), KBDMULTIVK);
+				return get_scancodes(codeIndex, KBD4X_1, ARRAYSIZE(KBD4X_1), KBDMULTIVK,
+				                     pdwScanCodeBuffer, ScanCodeBufferSize);
 			if (vkcode & KBDEXT)
-				return get_scancode(codeIndex, KBD4X, ARRAYSIZE(KBD4X), KBDEXT);
+				return get_scancodes(codeIndex, KBD4X, ARRAYSIZE(KBD4X), KBDEXT, pdwScanCodeBuffer,
+				                     ScanCodeBufferSize);
 			else
-				return get_scancode(codeIndex, KBD4T, ARRAYSIZE(KBD4T), 0);
+				return get_scancodes(codeIndex, KBD4T, ARRAYSIZE(KBD4T), 0, pdwScanCodeBuffer,
+				                     ScanCodeBufferSize);
 
 		case WINPR_KBD_TYPE_JAPANESE:
 			if (vkcode & KBDMULTIVK)
-				return get_scancode(codeIndex, KBD7X_1, ARRAYSIZE(KBD7X_1), KBDMULTIVK);
+				return get_scancodes(codeIndex, KBD7X_1, ARRAYSIZE(KBD7X_1), KBDMULTIVK,
+				                     pdwScanCodeBuffer, ScanCodeBufferSize);
 			if (vkcode & KBDEXT)
-				return get_scancode(codeIndex, KBD7X, ARRAYSIZE(KBD7X), KBDEXT);
+				return get_scancodes(codeIndex, KBD7X, ARRAYSIZE(KBD7X), KBDEXT, pdwScanCodeBuffer,
+				                     ScanCodeBufferSize);
 			else
-				return get_scancode(codeIndex, KBD7T, ARRAYSIZE(KBD7T), 0);
+				return get_scancodes(codeIndex, KBD7T, ARRAYSIZE(KBD7T), 0, pdwScanCodeBuffer,
+				                     ScanCodeBufferSize);
 		case WINPR_KBD_TYPE_KOREAN:
 			if (vkcode & KBDMULTIVK)
-				return get_scancode(codeIndex, KBD8X_1, ARRAYSIZE(KBD8X_1), KBDMULTIVK);
+				return get_scancodes(codeIndex, KBD8X_1, ARRAYSIZE(KBD8X_1), KBDMULTIVK,
+				                     pdwScanCodeBuffer, ScanCodeBufferSize);
 			if (vkcode & KBDEXT)
-				return get_scancode(codeIndex, KBD8X, ARRAYSIZE(KBD8X), KBDEXT);
+				return get_scancodes(codeIndex, KBD8X, ARRAYSIZE(KBD8X), KBDEXT, pdwScanCodeBuffer,
+				                     ScanCodeBufferSize);
 			else
-				return get_scancode(codeIndex, KBD8T, ARRAYSIZE(KBD8T), 0);
+				return get_scancodes(codeIndex, KBD8T, ARRAYSIZE(KBD8T), 0, pdwScanCodeBuffer,
+				                     ScanCodeBufferSize);
 		case WINPR_KBD_TYPE_NOKIA_1050:
 		case WINPR_KBD_TYPE_NOKIA_9140:
 		default:

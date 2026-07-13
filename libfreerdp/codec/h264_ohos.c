@@ -1484,6 +1484,8 @@ surface_path:
 	iStride[0] = (UINT32)yStride;
 	iStride[1] = (UINT32)chromaW;
 	iStride[2] = (UINT32)chromaW;
+	h264->YUVWidth = (UINT32)outW;
+	h264->YUVHeight = (UINT32)outH;
 	pYUVData[0] = outputAddr;
 	pYUVData[1] = uPlane;
 	pYUVData[2] = vPlane;

@@ -118,6 +118,8 @@ static wfBitmap* wf_glyph_new(wfContext* wfc, GLYPH_DATA* glyph)
 {
 	wfBitmap* glyph_bmp;
 	glyph_bmp = wf_image_new(wfc, glyph->cx, glyph->cy, PIXEL_FORMAT_MONO, glyph->aj);
+	if (!glyph_bmp)
+		WLog_ERR(TAG, "wf_image_new failed for glyph");
 	return glyph_bmp;
 }
 
@@ -131,6 +133,11 @@ static BYTE* wf_glyph_convert(wfContext* wfc, int width, int height, const BYTE*
 	const int src_bytes_per_row = (width + 7) / 8;
 	const int dst_bytes_per_row = src_bytes_per_row + (src_bytes_per_row % 2);
 	BYTE* cdata = (BYTE*)malloc(dst_bytes_per_row * height);
+	if (!cdata)
+	{
+		WLog_ERR(TAG, "malloc failed for cdata buffer");
+		return nullptr;
+	}
 	const BYTE* src = data;
 
 	for (int indexy = 0; indexy < height; indexy++)
@@ -155,7 +162,7 @@ static HBRUSH wf_create_brush(wfContext* wfc, rdpBrush* brush, UINT32 color, UIN
 	LOGBRUSH lbr;
 	BYTE* cdata;
 	BYTE ipattern[8];
-	HBITMAP pattern = NULL;
+	HBITMAP pattern = nullptr;
 	lbr.lbStyle = brush->style;
 
 	if (lbr.lbStyle == BS_DIBPATTERN || lbr.lbStyle == BS_DIBPATTERN8X8 ||
@@ -169,7 +176,7 @@ static HBRUSH wf_create_brush(wfContext* wfc, rdpBrush* brush, UINT32 color, UIN
 		if (brush->bpp > 1)
 		{
 			UINT32 format = gdi_get_pixel_format(bpp);
-			pattern = wf_create_dib(wfc, 8, 8, format, brush->data, NULL);
+			pattern = wf_create_dib(wfc, 8, 8, format, brush->data, nullptr);
 			lbr.lbHatch = (ULONG_PTR)pattern;
 		}
 		else
@@ -193,9 +200,9 @@ static HBRUSH wf_create_brush(wfContext* wfc, rdpBrush* brush, UINT32 color, UIN
 	}
 
 	br = CreateBrushIndirect(&lbr);
-	SetBrushOrgEx(wfc->drawing->hdc, brush->x, brush->y, NULL);
+	SetBrushOrgEx(wfc->drawing->hdc, brush->x, brush->y, nullptr);
 
-	if (pattern != NULL)
+	if (pattern != nullptr)
 		DeleteObject(pattern);
 
 	return br;
@@ -414,7 +421,7 @@ void wf_resize_window(wfContext* wfc)
 			xpos = wfc->client_x;
 			ypos = wfc->client_y;
 		}
-		SetWindowPos(wfc->hwnd, HWND_TOP, xpos, ypos, width, height, 0 /*SWP_FRAMECHANGED*/);
+		SetWindowPos(wfc->hwnd, HWND_TOP, xpos, ypos, width, height, SWP_FRAMECHANGED);
 		// wf_size_scrollbars(wfc,  wfc->client_width, wfc->client_height);
 	}
 
@@ -432,7 +439,7 @@ void wf_toggle_fullscreen(wfContext* wfc)
 	}
 
 	wf_floatbar_toggle_fullscreen(wfc->floatbar, wfc->fullscreen);
-	SetParent(wfc->hwnd, wfc->fullscreen ? NULL : wfc->hWndParent);
+	SetParent(wfc->hwnd, wfc->fullscreen ? nullptr : wfc->hWndParent);
 	wf_resize_window(wfc);
 	ShowWindow(wfc->hwnd, SW_SHOW);
 	SetForegroundWindow(wfc->hwnd);
@@ -452,7 +459,7 @@ static BOOL wf_gdi_palette_update(rdpContext* context, const PALETTE_UPDATE* pal
 
 void wf_set_null_clip_rgn(wfContext* wfc)
 {
-	SelectClipRgn(wfc->drawing->hdc, NULL);
+	SelectClipRgn(wfc->drawing->hdc, nullptr);
 }
 
 void wf_set_clip_rgn(wfContext* wfc, int x, int y, int width, int height)
@@ -471,14 +478,14 @@ static BOOL wf_gdi_set_bounds(rdpContext* context, const rdpBounds* bounds)
 	if (!context || !bounds)
 		return FALSE;
 
-	if (bounds != NULL)
+	if (bounds != nullptr)
 	{
 		hrgn = CreateRectRgn(bounds->left, bounds->top, bounds->right + 1, bounds->bottom + 1);
 		SelectClipRgn(wfc->drawing->hdc, hrgn);
 		DeleteObject(hrgn);
 	}
 	else
-		SelectClipRgn(wfc->drawing->hdc, NULL);
+		SelectClipRgn(wfc->drawing->hdc, nullptr);
 
 	return TRUE;
 }
@@ -491,7 +498,7 @@ static BOOL wf_gdi_dstblt(rdpContext* context, const DSTBLT_ORDER* dstblt)
 		return FALSE;
 
 	if (!BitBlt(wfc->drawing->hdc, dstblt->nLeftRect, dstblt->nTopRect, dstblt->nWidth,
-	            dstblt->nHeight, NULL, 0, 0, gdi_rop3_code(dstblt->bRop)))
+	            dstblt->nHeight, nullptr, 0, 0, gdi_rop3_code(dstblt->bRop)))
 		return FALSE;
 
 	wf_invalidate_region(wfc, dstblt->nLeftRect, dstblt->nTopRect, dstblt->nWidth, dstblt->nHeight);
@@ -513,10 +520,10 @@ static BOOL wf_gdi_patblt(rdpContext* context, PATBLT_ORDER* patblt)
 	if (!context || !patblt)
 		return FALSE;
 
-	if (!wf_decode_color(wfc, patblt->foreColor, &fgcolor, NULL))
+	if (!wf_decode_color(wfc, patblt->foreColor, &fgcolor, nullptr))
 		return FALSE;
 
-	if (!wf_decode_color(wfc, patblt->backColor, &bgcolor, NULL))
+	if (!wf_decode_color(wfc, patblt->backColor, &bgcolor, nullptr))
 		return FALSE;
 
 	brush = wf_create_brush(wfc, &patblt->brush, fgcolor,
@@ -566,7 +573,7 @@ static BOOL wf_gdi_opaque_rect(rdpContext* context, const OPAQUE_RECT_ORDER* opa
 	if (!context || !opaque_rect)
 		return FALSE;
 
-	if (!wf_decode_color(wfc, opaque_rect->color, &brush_color, NULL))
+	if (!wf_decode_color(wfc, opaque_rect->color, &brush_color, nullptr))
 		return FALSE;
 
 	rect.left = opaque_rect->nLeftRect;
@@ -595,7 +602,7 @@ static BOOL wf_gdi_multi_opaque_rect(rdpContext* context,
 	if (!context || !multi_opaque_rect)
 		return FALSE;
 
-	if (!wf_decode_color(wfc, multi_opaque_rect->color, &brush_color, NULL))
+	if (!wf_decode_color(wfc, multi_opaque_rect->color, &brush_color, nullptr))
 		return FALSE;
 
 	for (UINT32 i = 0; i < multi_opaque_rect->numRectangles; i++)
@@ -629,13 +636,13 @@ static BOOL wf_gdi_line_to(rdpContext* context, const LINE_TO_ORDER* line_to)
 	if (!context || !line_to)
 		return FALSE;
 
-	if (!wf_decode_color(wfc, line_to->penColor, &pen_color, NULL))
+	if (!wf_decode_color(wfc, line_to->penColor, &pen_color, nullptr))
 		return FALSE;
 
 	pen = CreatePen(line_to->penStyle, line_to->penWidth, pen_color);
 	wf_set_rop2(wfc->drawing->hdc, line_to->bRop2);
 	org_pen = (HPEN)SelectObject(wfc->drawing->hdc, pen);
-	MoveToEx(wfc->drawing->hdc, line_to->nXStart, line_to->nYStart, NULL);
+	MoveToEx(wfc->drawing->hdc, line_to->nXStart, line_to->nYStart, nullptr);
 	LineTo(wfc->drawing->hdc, line_to->nXEnd, line_to->nYEnd);
 	x = (line_to->nXStart < line_to->nXEnd) ? line_to->nXStart : line_to->nXEnd;
 	y = (line_to->nYStart < line_to->nYEnd) ? line_to->nYStart : line_to->nYEnd;
@@ -654,6 +661,7 @@ static BOOL wf_gdi_line_to(rdpContext* context, const LINE_TO_ORDER* line_to)
 
 static BOOL wf_gdi_polyline(rdpContext* context, const POLYLINE_ORDER* polyline)
 {
+	BOOL rc = FALSE;
 	int org_rop2;
 	HPEN hpen;
 	HPEN org_hpen;
@@ -663,7 +671,7 @@ static BOOL wf_gdi_polyline(rdpContext* context, const POLYLINE_ORDER* polyline)
 	if (!context || !polyline)
 		return FALSE;
 
-	if (!wf_decode_color(wfc, polyline->penColor, &pen_color, NULL))
+	if (!wf_decode_color(wfc, polyline->penColor, &pen_color, nullptr))
 		return FALSE;
 
 	hpen = CreatePen(0, 1, pen_color);
@@ -677,6 +685,11 @@ static BOOL wf_gdi_polyline(rdpContext* context, const POLYLINE_ORDER* polyline)
 		int numPoints;
 		numPoints = polyline->numDeltaEntries + 1;
 		pts = (POINT*)malloc(sizeof(POINT) * numPoints);
+		if (!pts)
+		{
+			WLog_ERR(TAG, "malloc failed for polyline points");
+			goto fail;
+		}
 		pts[0].x = temp.x = polyline->xStart;
 		pts[0].y = temp.y = polyline->yStart;
 
@@ -696,10 +709,13 @@ static BOOL wf_gdi_polyline(rdpContext* context, const POLYLINE_ORDER* polyline)
 		free(pts);
 	}
 
+	rc = TRUE;
+
+fail:
 	SelectObject(wfc->drawing->hdc, org_hpen);
 	wf_set_rop2(wfc->drawing->hdc, org_rop2);
 	DeleteObject(hpen);
-	return TRUE;
+	return rc;
 }
 
 static BOOL wf_gdi_memblt(rdpContext* context, MEMBLT_ORDER* memblt)
@@ -734,7 +750,7 @@ static BOOL wf_gdi_mem3blt(rdpContext* context, MEM3BLT_ORDER* mem3blt)
 	wfBitmap* bitmap;
 	wfContext* wfc = (wfContext*)context;
 	COLORREF fgcolor, bgcolor, orgColor;
-	HBRUSH orgBrush = NULL, brush = NULL;
+	HBRUSH orgBrush = nullptr, brush = nullptr;
 
 	if (!context || !mem3blt)
 		return FALSE;
@@ -746,10 +762,10 @@ static BOOL wf_gdi_mem3blt(rdpContext* context, MEM3BLT_ORDER* mem3blt)
 
 	hdc = wfc->drawing->hdc;
 
-	if (!wf_decode_color(wfc, mem3blt->foreColor, &fgcolor, NULL))
+	if (!wf_decode_color(wfc, mem3blt->foreColor, &fgcolor, nullptr))
 		return FALSE;
 
-	if (!wf_decode_color(wfc, mem3blt->backColor, &bgcolor, NULL))
+	if (!wf_decode_color(wfc, mem3blt->backColor, &bgcolor, nullptr))
 		return FALSE;
 
 	orgColor = SetTextColor(hdc, fgcolor);

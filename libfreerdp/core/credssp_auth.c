@@ -40,7 +40,7 @@
 
 #define TAG FREERDP_TAG("core.auth")
 
-#define SERVER_KEY "Software\\" FREERDP_VENDOR_STRING "\\" FREERDP_PRODUCT_STRING "\\Server"
+#define SERVER_KEY "Software\\%s\\Server"
 
 enum AUTH_STATE
 {
@@ -101,14 +101,14 @@ WINPR_ATTR_FORMAT_ARG(6, 7)
 static BOOL log_status_(SECURITY_STATUS status, DWORD level, const char* file, const char* fkt,
                         size_t line, WINPR_FORMAT_ARG const char* what, ...)
 {
-	static wLog* log = NULL;
+	static wLog* log = nullptr;
 	if (!log)
 		log = WLog_Get(TAG);
 
 	if (WLog_IsLevelActive(log, level))
 	{
-		char fwhat[128] = { 0 };
-		va_list ap;
+		char fwhat[128] = WINPR_C_ARRAY_INIT;
+		va_list ap = WINPR_C_ARRAY_INIT;
 		va_start(ap, what);
 		(void)vsnprintf(fwhat, sizeof(fwhat) - 1, what, ap);
 		va_end(ap);
@@ -126,21 +126,22 @@ static BOOL credssp_auth_update_name_cache(rdpCredsspAuth* auth, TCHAR* name)
 	WINPR_ASSERT(auth);
 
 	free(auth->pkgNameA);
-	auth->pkgNameA = NULL;
+	auth->pkgNameA = nullptr;
 	if (name)
 #if defined(UNICODE)
-		auth->pkgNameA = ConvertWCharToUtf8Alloc(name, NULL);
+		auth->pkgNameA = ConvertWCharToUtf8Alloc(name, nullptr);
 #else
 		auth->pkgNameA = _strdup(name);
 #endif
 	return TRUE;
 }
-rdpCredsspAuth* credssp_auth_new(const rdpContext* rdp_ctx)
+rdpCredsspAuth* credssp_auth_new(const rdpContext* context)
 {
+	WINPR_ASSERT(context);
 	rdpCredsspAuth* auth = calloc(1, sizeof(rdpCredsspAuth));
 
 	if (auth)
-		auth->rdp_ctx = rdp_ctx;
+		auth->rdp_ctx = context;
 
 	return auth;
 }
@@ -230,7 +231,7 @@ static BOOL credssp_auth_client_init_cred_attributes(rdpCredsspAuth* auth)
 		SECURITY_STATUS status = ERROR_INTERNAL_ERROR;
 		SSIZE_T str_size = 0;
 
-		str_size = ConvertUtf8ToWChar(auth->kerberosSettings.kdcUrl, NULL, 0);
+		str_size = ConvertUtf8ToWChar(auth->kerberosSettings.kdcUrl, nullptr, 0);
 		if ((str_size <= 0) || (str_size >= UINT16_MAX / 2))
 			return FALSE;
 		str_size++;
@@ -286,8 +287,8 @@ BOOL credssp_auth_setup_client(rdpCredsspAuth* auth, const char* target_service,
                                const char* target_hostname, const SEC_WINNT_AUTH_IDENTITY* identity,
                                const char* pkinit)
 {
-	void* pAuthData = NULL;
-	SEC_WINNT_AUTH_IDENTITY_WINPR winprAuthData = { 0 };
+	void* pAuthData = nullptr;
+	SEC_WINNT_AUTH_IDENTITY_WINPR winprAuthData = WINPR_C_ARRAY_INIT;
 
 	WINPR_ASSERT(auth);
 	WINPR_ASSERT(auth->table);
@@ -317,9 +318,9 @@ BOOL credssp_auth_setup_client(rdpCredsspAuth* auth, const char* target_service,
 	}
 
 	WINPR_ASSERT(auth->table->AcquireCredentialsHandle);
-	const SECURITY_STATUS status =
-	    auth->table->AcquireCredentialsHandle(NULL, auth->info->Name, SECPKG_CRED_OUTBOUND, NULL,
-	                                          pAuthData, NULL, NULL, &auth->credentials, NULL);
+	const SECURITY_STATUS status = auth->table->AcquireCredentialsHandle(
+	    nullptr, auth->info->Name, SECPKG_CRED_OUTBOUND, nullptr, pAuthData, nullptr, nullptr,
+	    &auth->credentials, nullptr);
 
 	if (status != SEC_E_OK)
 		return log_status(status, WLOG_ERROR, "AcquireCredentialsHandleA");
@@ -338,8 +339,8 @@ BOOL credssp_auth_setup_client(rdpCredsspAuth* auth, const char* target_service,
 
 BOOL credssp_auth_setup_server(rdpCredsspAuth* auth)
 {
-	void* pAuthData = NULL;
-	SEC_WINNT_AUTH_IDENTITY_WINPR winprAuthData = { 0 };
+	void* pAuthData = nullptr;
+	SEC_WINNT_AUTH_IDENTITY_WINPR winprAuthData = WINPR_C_ARRAY_INIT;
 
 	WINPR_ASSERT(auth);
 	WINPR_ASSERT(auth->table);
@@ -354,9 +355,9 @@ BOOL credssp_auth_setup_server(rdpCredsspAuth* auth)
 	}
 
 	WINPR_ASSERT(auth->table->AcquireCredentialsHandle);
-	const SECURITY_STATUS status =
-	    auth->table->AcquireCredentialsHandle(NULL, auth->info->Name, SECPKG_CRED_INBOUND, NULL,
-	                                          pAuthData, NULL, NULL, &auth->credentials, NULL);
+	const SECURITY_STATUS status = auth->table->AcquireCredentialsHandle(
+	    nullptr, auth->info->Name, SECPKG_CRED_INBOUND, nullptr, pAuthData, nullptr, nullptr,
+	    &auth->credentials, nullptr);
 	if (status != SEC_E_OK)
 		return log_status(status, WLOG_ERROR, "AcquireCredentialsHandleA");
 
@@ -412,12 +413,28 @@ void credssp_auth_set_flags(rdpCredsspAuth* auth, ULONG flags)
  *                                           --------------
  */
 
+#define query_logged(auth, ulAttribute, pBuffer) \
+	query_logged_((auth), (ulAttribute), (pBuffer), __FILE__, __func__, __LINE__)
+static SECURITY_STATUS query_logged_(rdpCredsspAuth* auth, ULONG ulAttribute, void* pBuffer,
+                                     const char* file, const char* fkt, size_t line)
+{
+	WINPR_ASSERT(auth);
+	WINPR_ASSERT(auth->table);
+	WINPR_ASSERT(auth->table->QueryContextAttributes);
+
+	SECURITY_STATUS status =
+	    auth->table->QueryContextAttributes(&auth->context, ulAttribute, pBuffer);
+	(void)log_status_(status, WLOG_DEBUG, file, fkt, line,
+	                  "QueryContextAttributes(0x%08" PRIx32 ")", ulAttribute);
+	return status;
+}
+
 int credssp_auth_authenticate(rdpCredsspAuth* auth)
 {
 	SECURITY_STATUS status = ERROR_INTERNAL_ERROR;
-	SecBuffer input_buffers[2] = { 0 };
+	SecBuffer input_buffers[2] = WINPR_C_ARRAY_INIT;
 	SecBufferDesc input_buffer_desc = { SECBUFFER_VERSION, 1, input_buffers };
-	CtxtHandle* context = NULL;
+	CtxtHandle* context = nullptr;
 
 	WINPR_ASSERT(auth);
 	WINPR_ASSERT(auth->table);
@@ -438,10 +455,10 @@ int credssp_auth_authenticate(rdpCredsspAuth* auth)
 	}
 
 	/* input buffer will be null on first call,
-	 * context MUST be NULL on first call */
+	 * context MUST be nullptr on first call */
 	context = &auth->context;
 	if (!auth->context.dwLower && !auth->context.dwUpper)
-		context = NULL;
+		context = nullptr;
 
 	input_buffers[0] = auth->input_buffer;
 
@@ -465,14 +482,34 @@ int credssp_auth_authenticate(rdpCredsspAuth* auth)
 		WINPR_ASSERT(auth->table->AcceptSecurityContext);
 		status = auth->table->AcceptSecurityContext(
 		    &auth->credentials, context, &input_buffer_desc, auth->flags, SECURITY_NATIVE_DREP,
-		    &auth->context, &output_buffer_desc, &auth->flags, NULL);
+		    &auth->context, &output_buffer_desc, &auth->flags, nullptr);
 	}
 	else
 	{
 		WINPR_ASSERT(auth->table->InitializeSecurityContext);
 		status = auth->table->InitializeSecurityContext(
 		    &auth->credentials, context, auth->spn, auth->flags, 0, SECURITY_NATIVE_DREP,
-		    &input_buffer_desc, 0, &auth->context, &output_buffer_desc, &auth->flags, NULL);
+		    &input_buffer_desc, 0, &auth->context, &output_buffer_desc, &auth->flags, nullptr);
+
+#if !defined(_WIN32)
+		const rdpSettings* settings = auth->rdp_ctx->settings;
+		WINPR_ASSERT(settings);
+		const char* name = freerdp_settings_get_string(settings, FreeRDP_SspiClientHostname);
+		if (name)
+		{
+			const size_t len = strlen(name);
+			if (len > ULONG_MAX)
+				status = SEC_E_INVALID_PARAMETER;
+			else
+			{
+				const SECURITY_STATUS sca = auth->table->SetContextAttributesA(
+				    &auth->context, SECPKG_ATTR_AUTH_NTLM_HOSTNAME,
+				    WINPR_CAST_CONST_PTR_AWAY(name, char*), WINPR_ASSERTING_INT_CAST(ULONG, len));
+				(void)log_status(sca, WLOG_DEBUG, "SetContextAttributesA(0x%08" PRIx32 ")",
+				                 SECPKG_ATTR_AUTH_NTLM_HOSTNAME);
+			}
+		}
+#endif
 	}
 
 	if (status == SEC_E_OK)
@@ -483,14 +520,42 @@ int credssp_auth_authenticate(rdpCredsspAuth* auth)
 
 		/* Not terrible if this fails, although encryption functions may run into issues down the
 		 * line, still, authentication succeeded */
-		WINPR_ASSERT(auth->table->QueryContextAttributes);
-		status =
-		    auth->table->QueryContextAttributes(&auth->context, SECPKG_ATTR_SIZES, &auth->sizes);
-		(void)log_status(status, WLOG_DEBUG, "QueryContextAttributes");
+		(void)query_logged(auth, SECPKG_ATTR_SIZES, &auth->sizes);
 		WLog_DBG(TAG, "Context sizes: cbMaxSignature=%" PRIu32 ", cbSecurityTrailer=%" PRIu32 "",
 		         auth->sizes.cbMaxSignature, auth->sizes.cbSecurityTrailer);
 
-		return 1;
+		int rc = 1;
+#if !defined(_WIN32)
+		rdpSettings* settings = auth->rdp_ctx->settings;
+		if (!freerdp_settings_set_string(settings, FreeRDP_SspiClientHostname, nullptr))
+			return -1;
+
+		ULONG len = 0;
+		SECURITY_STATUS qstatus = query_logged(auth, SECPKG_ATTR_AUTH_NTLM_HOSTNAME_LEN, &len);
+
+		if ((qstatus == SEC_E_OK) && (len > 0))
+		{
+			void* WorkstationName = calloc(len + 1, sizeof(WCHAR));
+			if (!WorkstationName)
+				return -1;
+
+			qstatus = query_logged(auth, SECPKG_ATTR_AUTH_NTLM_HOSTNAME, WorkstationName);
+			if (qstatus == SEC_E_OK)
+			{
+#if defined(UNICODE)
+				if (!freerdp_settings_set_string_from_utf16N(settings, FreeRDP_SspiClientHostname,
+				                                             WorkstationName, len))
+					rc = -1;
+#else
+				if (!freerdp_settings_set_string_len(settings, FreeRDP_SspiClientHostname,
+				                                     WorkstationName, len))
+					rc = -1;
+#endif
+			}
+			free(WorkstationName);
+		}
+#endif
+		return rc;
 	}
 	else if (status == SEC_I_CONTINUE_NEEDED)
 	{
@@ -513,9 +578,9 @@ BOOL credssp_auth_encrypt(rdpCredsspAuth* auth, const SecBuffer* plaintext, SecB
                           size_t* signature_length, ULONG sequence)
 {
 	SECURITY_STATUS status = ERROR_INTERNAL_ERROR;
-	SecBuffer buffers[2] = { 0 };
+	SecBuffer buffers[2] = WINPR_C_ARRAY_INIT;
 	SecBufferDesc buffer_desc = { SECBUFFER_VERSION, 2, buffers };
-	BYTE* buf = NULL;
+	BYTE* buf = nullptr;
 
 	WINPR_ASSERT(auth && auth->table);
 	WINPR_ASSERT(plaintext);
@@ -673,7 +738,7 @@ void credssp_auth_take_input_buffer(rdpCredsspAuth* auth, SecBuffer* buffer)
 	auth->input_buffer.BufferType = SECBUFFER_TOKEN;
 
 	/* Invalidate original, rdpCredsspAuth now has ownership of the buffer */
-	SecBuffer empty = { 0 };
+	SecBuffer empty = WINPR_C_ARRAY_INIT;
 	*buffer = empty;
 }
 
@@ -686,7 +751,7 @@ const SecBuffer* credssp_auth_get_output_buffer(const rdpCredsspAuth* auth)
 BOOL credssp_auth_have_output_token(rdpCredsspAuth* auth)
 {
 	WINPR_ASSERT(auth);
-	return auth->output_buffer.cbBuffer ? TRUE : FALSE;
+	return (auth->output_buffer.cbBuffer != 0);
 }
 
 BOOL credssp_auth_is_complete(const rdpCredsspAuth* auth)
@@ -726,8 +791,8 @@ void credssp_auth_tableAndContext(rdpCredsspAuth* auth, SecurityFunctionTable** 
 
 void credssp_auth_free(rdpCredsspAuth* auth)
 {
-	SEC_WINPR_KERBEROS_SETTINGS* krb_settings = NULL;
-	SEC_WINPR_NTLM_SETTINGS* ntlm_settings = NULL;
+	SEC_WINPR_KERBEROS_SETTINGS* krb_settings = nullptr;
+	SEC_WINPR_NTLM_SETTINGS* ntlm_settings = nullptr;
 
 	if (!auth)
 		return;
@@ -775,24 +840,30 @@ void credssp_auth_free(rdpCredsspAuth* auth)
 	free(auth->spn);
 	sspi_SecBufferFree(&auth->input_buffer);
 	sspi_SecBufferFree(&auth->output_buffer);
-	credssp_auth_update_name_cache(auth, NULL);
+	credssp_auth_update_name_cache(auth, nullptr);
 	free(auth);
 }
 
 static void auth_get_sspi_module_from_reg(char** sspi_module)
 {
-	HKEY hKey = NULL;
+	HKEY hKey = nullptr;
 	DWORD dwType = 0;
 	DWORD dwSize = 0;
 
 	WINPR_ASSERT(sspi_module);
-	*sspi_module = NULL;
+	*sspi_module = nullptr;
 
-	if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, SERVER_KEY, 0, KEY_READ | KEY_WOW64_64KEY, &hKey) !=
-	    ERROR_SUCCESS)
+	char* key = freerdp_getApplicatonDetailsRegKey(SERVER_KEY);
+	if (!key)
 		return;
 
-	if (RegQueryValueExA(hKey, "SspiModule", NULL, &dwType, NULL, &dwSize) != ERROR_SUCCESS)
+	const LONG rc = RegOpenKeyExA(HKEY_LOCAL_MACHINE, key, 0, KEY_READ | KEY_WOW64_64KEY, &hKey);
+	free(key);
+
+	if (rc != ERROR_SUCCESS)
+		return;
+
+	if (RegQueryValueExA(hKey, "SspiModule", nullptr, &dwType, nullptr, &dwSize) != ERROR_SUCCESS)
 	{
 		RegCloseKey(hKey);
 		return;
@@ -805,7 +876,7 @@ static void auth_get_sspi_module_from_reg(char** sspi_module)
 		return;
 	}
 
-	if (RegQueryValueExA(hKey, "SspiModule", NULL, &dwType, (BYTE*)module, &dwSize) !=
+	if (RegQueryValueExA(hKey, "SspiModule", nullptr, &dwType, (BYTE*)module, &dwSize) !=
 	    ERROR_SUCCESS)
 	{
 		RegCloseKey(hKey);
@@ -819,7 +890,7 @@ static void auth_get_sspi_module_from_reg(char** sspi_module)
 
 static SecurityFunctionTable* auth_resolve_sspi_table(const rdpSettings* settings)
 {
-	char* sspi_module = NULL;
+	char* sspi_module = nullptr;
 
 	WINPR_ASSERT(settings);
 
@@ -841,7 +912,7 @@ static SecurityFunctionTable* auth_resolve_sspi_table(const rdpSettings* setting
 		{
 			WLog_ERR(TAG, "Failed to load SSPI module: %s", module_name);
 			free(sspi_module);
-			return NULL;
+			return nullptr;
 		}
 
 		WLog_INFO(TAG, "Using SSPI Module: %s", module_name);
@@ -852,7 +923,7 @@ static SecurityFunctionTable* auth_resolve_sspi_table(const rdpSettings* setting
 		{
 			WLog_ERR(TAG, "Failed to load SSPI module: %s, no function %s", module_name, proc_name);
 			free(sspi_module);
-			return NULL;
+			return nullptr;
 		}
 		free(sspi_module);
 		return InitSecurityInterface_ptr();
@@ -863,10 +934,10 @@ static SecurityFunctionTable* auth_resolve_sspi_table(const rdpSettings* setting
 
 static BOOL credssp_auth_setup_identity(rdpCredsspAuth* auth)
 {
-	const rdpSettings* settings = NULL;
-	SEC_WINPR_KERBEROS_SETTINGS* krb_settings = NULL;
-	SEC_WINPR_NTLM_SETTINGS* ntlm_settings = NULL;
-	freerdp_peer* peer = NULL;
+	const rdpSettings* settings = nullptr;
+	SEC_WINPR_KERBEROS_SETTINGS* krb_settings = nullptr;
+	SEC_WINPR_NTLM_SETTINGS* ntlm_settings = nullptr;
+	freerdp_peer* peer = nullptr;
 
 	WINPR_ASSERT(auth);
 	WINPR_ASSERT(auth->rdp_ctx);
@@ -954,7 +1025,7 @@ static BOOL credssp_auth_setup_identity(rdpCredsspAuth* auth)
 
 	if (settings->AuthenticationPackageList)
 	{
-		auth->package_list = ConvertUtf8ToWCharAlloc(settings->AuthenticationPackageList, NULL);
+		auth->package_list = ConvertUtf8ToWCharAlloc(settings->AuthenticationPackageList, nullptr);
 		if (!auth->package_list)
 			return FALSE;
 	}
@@ -968,7 +1039,7 @@ static BOOL credssp_auth_setup_identity(rdpCredsspAuth* auth)
 BOOL credssp_auth_set_spn(rdpCredsspAuth* auth, const char* service, const char* hostname)
 {
 	size_t length = 0;
-	char* spn = NULL;
+	char* spn = nullptr;
 
 	WINPR_ASSERT(auth);
 
@@ -990,7 +1061,7 @@ BOOL credssp_auth_set_spn(rdpCredsspAuth* auth, const char* service, const char*
 		return FALSE;
 
 #if defined(UNICODE)
-	auth->spn = ConvertUtf8ToWCharAlloc(spn, NULL);
+	auth->spn = ConvertUtf8ToWCharAlloc(spn, nullptr);
 	free(spn);
 #else
 	auth->spn = spn;
@@ -1005,7 +1076,7 @@ static const char* parseInt(const char* v, INT32* r)
 
 	/* check that we have at least a digit */
 	if (!*v || !((*v >= '0') && (*v <= '9')))
-		return NULL;
+		return nullptr;
 
 	for (; *v && (*v >= '0') && (*v <= '9'); v++)
 	{
@@ -1018,7 +1089,7 @@ static const char* parseInt(const char* v, INT32* r)
 static BOOL parseKerberosDeltat(const char* value, INT32* dest, const char* message)
 {
 	INT32 v = 0;
-	const char* ptr = NULL;
+	const char* ptr = nullptr;
 
 	WINPR_ASSERT(value);
 	WINPR_ASSERT(dest);

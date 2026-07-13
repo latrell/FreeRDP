@@ -1,34 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?><!--
 /*
-   Credential Settings Layout
+   Gateway Settings Layout
 
    Copyright 2013 Felix Long
 
-   This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0. 
+   This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0.
    If a copy of the MPL was not distributed with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 */
  -->
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:freerdp="http://schemas.android.com/apk/res-auto">
     <PreferenceCategory android:title="@string/settings_cat_gateway">
         <EditTextPreference
             android:key="bookmark.gateway_hostname"
             android:singleLine="true"
-            android:summary="Name or address of the target computer"
-            android:title="@string/settings_hostname" />
+            android:title="@string/settings_hostname"
+            app:useSimpleSummaryProvider="true" />
         <com.freerdp.freerdpcore.utils.IntEditTextPreference
             android:inputType="number"
             android:key="bookmark.gateway_port"
             android:numeric="integer"
-            android:summary="Gateway Port on the target computer"
             android:title="@string/settings_port"
             freerdp:bounds_default="443"
             freerdp:bounds_max="65535"
-            freerdp:bounds_min="10" />
+            freerdp:bounds_min="10"
+            app:useSimpleSummaryProvider="true" />
         <EditTextPreference
             android:key="bookmark.gateway_username"
             android:singleLine="true"
-            android:title="@string/settings_username" />
+            android:title="@string/settings_username"
+            app:useSimpleSummaryProvider="true" />
         <EditTextPreference
             android:inputType="textPassword"
             android:singleLine="true"
@@ -37,7 +39,7 @@
         <EditTextPreference
             android:key="bookmark.gateway_domain"
             android:singleLine="true"
-            android:summary="Optional"
-            android:title="@string/settings_domain" />
+            android:title="@string/settings_domain"
+            app:useSimpleSummaryProvider="true" />
     </PreferenceCategory>
 </PreferenceScreen>

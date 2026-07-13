@@ -10,7 +10,9 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <supports-screens
         android:anyDensity="true"
@@ -58,27 +60,22 @@
             android:exported="false"
             android:name=".presentation.BookmarkActivity"
             android:label="@string/title_bookmark_settings"
-            android:theme="@style/Theme.Settings">
-            <intent-filter>
-                <action android:name="freerdp.intent.action.BOOKMARK" />
-
-                <category android:name="android.intent.category.DEFAULT" />
-
-                <data android:scheme="preferences" />
-            </intent-filter>
-        </activity>
+            android:theme="@style/Theme.Main" />
         <activity
             android:exported="true"
             android:name=".presentation.ApplicationSettingsActivity"
             android:label="@string/title_application_settings"
-            android:theme="@style/Theme.Settings"
+            android:theme="@style/Theme.Main"
             android:windowSoftInputMode="stateHidden" />
         <activity
             android:exported="true"
             android:name=".presentation.SessionActivity"
             android:theme="@style/Theme.Main"
             android:configChanges="orientation|keyboard|keyboardHidden|screenSize|smallestScreenSize|density|screenLayout|navigation"
-            android:windowSoftInputMode="adjustResize">
+            android:windowSoftInputMode="adjustResize"
+            android:taskAffinity="com.freerdp.session"
+            android:documentLaunchMode="always"
+            android:autoRemoveFromRecents="true">
             <!--android:configChanges="orientation|keyboardHidden|screenSize|keyboard"-->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -95,21 +92,40 @@
             android:exported="true"
             android:name=".presentation.AboutActivity"
             android:label="@string/title_about"
-            android:theme="@style/Theme.Main" />
+            android:theme="@style/Theme.Main"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
         <activity
             android:exported="true"
             android:name=".presentation.HelpActivity"
             android:label="@string/title_help"
-            android:theme="@style/Theme.Main" />
+            android:theme="@style/Theme.Main"
+            android:configChanges="orientation|keyboardHidden|screenSize" />
 
-        <receiver
-            android:exported="true"
-            android:name=".application.NetworkStateReceiver"
-            android:enabled="true">
+        <activity
+            android:exported="false"
+            android:name=".presentation.PrintProxyActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true" />
+
+        <provider
+            android:name=".utils.ClipboardImageProvider"
+            android:authorities="com.freerdp.freerdpcore.clipboard"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
+        <service
+            android:name=".presentation.KeyboardAccessibilityService"
+            android:label="@string/accessibility_keyboard_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:enabled="true"
+            android:exported="false">
             <intent-filter>
-                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+                <action android:name="android.accessibilityservice.AccessibilityService" />
             </intent-filter>
-        </receiver>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/keyboard_accessibility_service" />
+        </service>
 
     </application>
 

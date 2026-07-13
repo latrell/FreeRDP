@@ -45,6 +45,7 @@ extern "C"
 	 * @param r2 second rectangle
 	 * @return if the two rectangles are equal
 	 */
+	WINPR_ATTR_NODISCARD
 	FREERDP_API BOOL rectangles_equal(const RECTANGLE_16* r1, const RECTANGLE_16* r2);
 
 	/** computes if two rectangles intersect
@@ -52,6 +53,7 @@ extern "C"
 	 * @param r2 second rectangle
 	 * @return if the two rectangles intersect
 	 */
+	WINPR_ATTR_NODISCARD
 	FREERDP_API BOOL rectangles_intersects(const RECTANGLE_16* r1, const RECTANGLE_16* r2);
 
 	/** computes the intersection of two rectangles
@@ -60,8 +62,30 @@ extern "C"
 	 * @param dst resulting intersection
 	 * @return if the two rectangles intersect
 	 */
+	WINPR_ATTR_NODISCARD
 	FREERDP_API BOOL rectangles_intersection(const RECTANGLE_16* r1, const RECTANGLE_16* r2,
 	                                         RECTANGLE_16* dst);
+
+	/** @brief returns a string representation of the rectangle
+	 *
+	 *  @param rect A pointer to a rectangle to stringify
+	 *  @param buffer A pointer to a string buffer to hold the result
+	 *  @param length The length in bytes of \ref buffer
+	 *  @return A pointer to \ref buffer
+	 *  @since version 3.29.0
+	 */
+	FREERDP_API const char* rectangle_to_string(const RECTANGLE_16* rect, char* buffer,
+	                                            size_t length);
+
+	/** @brief Clone a rectangle array
+	 *
+	 *  @param rects A pointer to the array to clone
+	 *  @param count The number of rectangles found in \ref rects
+	 *  @return An allocated copy of \ref rects or nullptr in case of failure
+	 *  @since version 3.29.0
+	 */
+	WINPR_ATTR_MALLOC(free, 1)
+	FREERDP_API RECTANGLE_16* rectangles_clone(const RECTANGLE_16* rects, size_t count);
 
 	/** initialize a region16
 	 * @param region the region to initialise
@@ -69,29 +93,34 @@ extern "C"
 	FREERDP_API void region16_init(REGION16* region);
 
 	/** @return the number of rectangles of this region16 */
+	WINPR_ATTR_NODISCARD
 	FREERDP_API int region16_n_rects(const REGION16* region);
 
 	/** returns a pointer to rectangles and the number of rectangles in this region.
-	 * nbRects can be set to NULL if not interested in the number of rectangles.
+	 * nbRects can be set to nullptr if not interested in the number of rectangles.
 	 * @param region the input region
-	 * @param nbRects if non-NULL returns the number of rectangles
+	 * @param nbRects if non-nullptr returns the number of rectangles
 	 * @return a pointer on the rectangles
 	 */
+	WINPR_ATTR_NODISCARD
 	FREERDP_API const RECTANGLE_16* region16_rects(const REGION16* region, UINT32* nbRects);
 
 	/** @return the extents rectangle of this region */
+	WINPR_ATTR_NODISCARD
 	FREERDP_API const RECTANGLE_16* region16_extents(const REGION16* region);
 
 	/** returns if the rectangle is empty
 	 * @param rect the rectangle to check
 	 * @return if the rectangle is empty
 	 */
+	WINPR_ATTR_NODISCARD
 	FREERDP_API BOOL rectangle_is_empty(const RECTANGLE_16* rect);
 
 	/** returns if the region is empty
 	 * @param region the region to check
 	 * @return if the region is empty
 	 */
+	WINPR_ATTR_NODISCARD
 	FREERDP_API BOOL region16_is_empty(const REGION16* region);
 
 	/** clears the region, the region is reset to a (0,0,0,0) region
@@ -104,11 +133,20 @@ extern "C"
 	 */
 	FREERDP_API void region16_print(const REGION16* region);
 
+	/** @brief return a string representation of a region
+	 *
+	 *  @param region A pointer to the region to stringify.
+	 *  @since version 3.29.0
+	 */
+	WINPR_ATTR_MALLOC(free, 1)
+	FREERDP_API char* region16_to_string(const REGION16* region);
+
 	/** copies the region to another region
 	 * @param dst destination region
 	 * @param src source region
 	 * @return if the operation was successful (false meaning out-of-memory)
 	 */
+	WINPR_ATTR_NODISCARD
 	FREERDP_API BOOL region16_copy(REGION16* dst, const REGION16* src);
 
 	/** adds a rectangle in src and stores the resulting region in dst
@@ -117,6 +155,7 @@ extern "C"
 	 * @param rect the rectangle to add
 	 * @return if the operation was successful (false meaning out-of-memory)
 	 */
+	WINPR_ATTR_NODISCARD
 	FREERDP_API BOOL region16_union_rect(REGION16* dst, const REGION16* src,
 	                                     const RECTANGLE_16* rect);
 
@@ -125,16 +164,18 @@ extern "C"
 	 * @param arg2 the rectangle
 	 * @return if region and rectangle intersect
 	 */
+	WINPR_ATTR_NODISCARD
 	FREERDP_API BOOL region16_intersects_rect(const REGION16* src, const RECTANGLE_16* arg2);
 
 	/** computes the intersection between a region and a rectangle
 	 * @param dst destination region
 	 * @param src the source region
-	 * @param arg2 the rectangle that intersects
+	 * @param rect the rectangle that intersects
 	 * @return if the operation was successful (false meaning out-of-memory)
 	 */
+	WINPR_ATTR_NODISCARD
 	FREERDP_API BOOL region16_intersect_rect(REGION16* dst, const REGION16* src,
-	                                         const RECTANGLE_16* arg2);
+	                                         const RECTANGLE_16* rect);
 
 	/** release internal data associated with this region
 	 * @param region the region to release

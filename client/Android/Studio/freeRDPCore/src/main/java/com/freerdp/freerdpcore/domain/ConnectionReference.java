@@ -15,10 +15,9 @@ public class ConnectionReference
 {
 	public static final String PATH_MANUAL_BOOKMARK_ID = "MBMID/";
 	public static final String PATH_HOSTNAME = "HOST/";
-	public static final String PATH_PLACEHOLDER = "PLCHLD/";
 	public static final String PATH_FILE = "FILE/";
 
-	public static String getManualBookmarkReference(long bookmarkId)
+	public static String getBookmarkReference(long bookmarkId)
 	{
 		return (PATH_MANUAL_BOOKMARK_ID + bookmarkId);
 	}
@@ -26,11 +25,6 @@ public class ConnectionReference
 	public static String getHostnameReference(String hostname)
 	{
 		return (PATH_HOSTNAME + hostname);
-	}
-
-	public static String getPlaceholderReference(String name)
-	{
-		return (PATH_PLACEHOLDER + name);
 	}
 
 	public static String getFileReference(String uri)
@@ -43,19 +37,9 @@ public class ConnectionReference
 		return refStr.startsWith(PATH_MANUAL_BOOKMARK_ID);
 	}
 
-	public static boolean isManualBookmarkReference(String refStr)
-	{
-		return refStr.startsWith(PATH_MANUAL_BOOKMARK_ID);
-	}
-
 	public static boolean isHostnameReference(String refStr)
 	{
 		return refStr.startsWith(PATH_HOSTNAME);
-	}
-
-	public static boolean isPlaceholderReference(String refStr)
-	{
-		return refStr.startsWith(PATH_PLACEHOLDER);
 	}
 
 	public static boolean isFileReference(String refStr)
@@ -63,7 +47,7 @@ public class ConnectionReference
 		return refStr.startsWith(PATH_FILE);
 	}
 
-	public static long getManualBookmarkId(String refStr)
+	public static long getBookmarkId(String refStr)
 	{
 		return Integer.parseInt(refStr.substring(PATH_MANUAL_BOOKMARK_ID.length()));
 	}
@@ -71,11 +55,6 @@ public class ConnectionReference
 	public static String getHostname(String refStr)
 	{
 		return refStr.substring(PATH_HOSTNAME.length());
-	}
-
-	public static String getPlaceholder(String refStr)
-	{
-		return refStr.substring(PATH_PLACEHOLDER.length());
 	}
 
 	public static String getFile(String refStr)

@@ -55,7 +55,7 @@ static void mf_server_main_loop(freerdp_listener* instance)
 	while (1)
 	{
 		DWORD status;
-		HANDLE handles[MAXIMUM_WAIT_OBJECTS] = { 0 };
+		HANDLE handles[MAXIMUM_WAIT_OBJECTS] = WINPR_C_ARRAY_INIT;
 		DWORD count = instance->GetEventHandles(instance, handles, ARRAYSIZE(handles));
 
 		if (count == 0)
@@ -89,7 +89,8 @@ int main(int argc, char* argv[])
 
 	signal(SIGPIPE, SIG_IGN);
 
-	WTSRegisterWtsApiFunctionTable(FreeRDP_InitWtsApi());
+	if (!WTSRegisterWtsApiFunctionTable(FreeRDP_InitWtsApi()))
+		return -1;
 
 	if (!(instance = freerdp_listener_new()))
 		return 1;
@@ -97,7 +98,7 @@ int main(int argc, char* argv[])
 	instance->info = &info;
 	instance->PeerAccepted = mf_peer_accepted;
 
-	if (instance->Open(instance, NULL, 3389))
+	if (instance->Open(instance, nullptr, 3389))
 	{
 		mf_server_main_loop(instance);
 	}

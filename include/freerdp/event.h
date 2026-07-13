@@ -85,6 +85,16 @@ extern "C"
 	int result;
 	DEFINE_EVENT_END(ConnectionResult)
 
+	DEFINE_EVENT_BEGIN(ChannelInitialized)
+	const char* name;
+	void* pInterface;
+	DEFINE_EVENT_END(ChannelInitialized)
+
+	DEFINE_EVENT_BEGIN(ChannelTerminated)
+	const char* name;
+	void* pInterface;
+	DEFINE_EVENT_END(ChannelTerminated)
+
 	DEFINE_EVENT_BEGIN(ChannelConnected)
 	const char* name;
 	void* pInterface;
@@ -125,6 +135,24 @@ extern "C"
 	UINT32 width;
 	UINT32 height;
 	DEFINE_EVENT_END(GraphicsReset)
+
+	DEFINE_EVENT_BEGIN(UserNotification)
+	UINT64 messageID;                /**< A unique message identifier, can be later used with \ref
+	                                    cancelPreviousNotification */
+	const char* message;             /**< An optional notification message text */
+	UINT32 timeoutMS;                /**< An optional message timeout, \b 0 for infinite */
+	BOOL cancelPreviousNotification; /**< This notification is meant to cancel a previous one with
+	                                    \ref messageID */
+	DEFINE_EVENT_END(UserNotification)
+
+	DEFINE_EVENT_BEGIN(StateChanged)
+	CONNECTION_STATE oldState; /** @brief Old CONNECTION_STATE value
+	                            * @since version 3.27.0
+	                            */
+	CONNECTION_STATE newState; /** @brief Current CONNECTION_STATE value
+	                            * @since version 3.27.0
+	                            */
+	DEFINE_EVENT_END(StateChanged)
 
 #ifdef __cplusplus
 }

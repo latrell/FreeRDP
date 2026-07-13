@@ -10,112 +10,51 @@
 
 package com.freerdp.freerdpcore.services;
 
-import android.database.Cursor;
-import android.database.SQLException;
-import android.database.sqlite.SQLiteDatabase;
-import android.database.sqlite.SQLiteException;
-import android.database.sqlite.SQLiteOpenHelper;
-import android.util.Log;
-
+import com.freerdp.freerdpcore.data.HistoryDao;
+import com.freerdp.freerdpcore.data.HistoryEntity;
 import com.freerdp.freerdpcore.domain.BookmarkBase;
-import com.freerdp.freerdpcore.domain.QuickConnectBookmark;
 
 import java.util.ArrayList;
+import java.util.List;
 
 public class QuickConnectHistoryGateway
 {
-	private final static String TAG = "QuickConnectHistoryGateway";
-	private final SQLiteOpenHelper historyDB;
+	private final HistoryDao dao;
 
-	public QuickConnectHistoryGateway(SQLiteOpenHelper historyDB)
+	public QuickConnectHistoryGateway(HistoryDao dao)
 	{
-		this.historyDB = historyDB;
+		this.dao = dao;
 	}
 
 	public ArrayList<BookmarkBase> findHistory(String filter)
 	{
-		String[] column = { HistoryDB.QUICK_CONNECT_TABLE_COL_ITEM };
+		String query = (filter != null && !filter.isEmpty()) ? ("%" + filter + "%") : "%";
+		List<HistoryEntity> entities = dao.findHistory(query);
 
-		SQLiteDatabase db = getReadableDatabase();
-		String selection =
-		    (filter.length() > 0)
-		        ? (HistoryDB.QUICK_CONNECT_TABLE_COL_ITEM + " LIKE '%" + filter + "%'")
-		        : null;
-		Cursor cursor = db.query(HistoryDB.QUICK_CONNECT_TABLE_NAME, column, selection, null, null,
-		                         null, HistoryDB.QUICK_CONNECT_TABLE_COL_TIMESTAMP);
-
-		ArrayList<BookmarkBase> result = new ArrayList<>(cursor.getCount());
-		if (cursor.moveToFirst())
+		ArrayList<BookmarkBase> result = new ArrayList<>(entities.size());
+		for (HistoryEntity entity : entities)
 		{
-			do
-			{
-				String hostname =
-				    cursor.getString(cursor.getColumnIndex(HistoryDB.QUICK_CONNECT_TABLE_COL_ITEM));
-				QuickConnectBookmark bookmark = new QuickConnectBookmark();
-				bookmark.setLabel(hostname);
-				bookmark.setHostname(hostname);
-				result.add(bookmark);
-			} while (cursor.moveToNext());
+			BookmarkBase bookmark = new BookmarkBase();
+			bookmark.setType(BookmarkBase.TYPE_QUICKCONNECT);
+			bookmark.setLabel(entity.item);
+			bookmark.setHostname(entity.item);
+			result.add(bookmark);
 		}
-		cursor.close();
 		return result;
 	}
 
 	public void addHistoryItem(String item)
 	{
-		String insertHistoryItem = "INSERT OR REPLACE INTO " + HistoryDB.QUICK_CONNECT_TABLE_NAME +
-		                           " (" + HistoryDB.QUICK_CONNECT_TABLE_COL_ITEM + ", " +
-		                           HistoryDB.QUICK_CONNECT_TABLE_COL_TIMESTAMP + ") VALUES('" +
-		                           item + "', datetime('now'))";
-		SQLiteDatabase db = getWritableDatabase();
-		try
-		{
-			db.execSQL(insertHistoryItem);
-		}
-		catch (SQLException e)
-		{
-			Log.v(TAG, e.toString());
-		}
+		dao.insertOrReplace(new HistoryEntity(item));
 	}
 
 	public boolean historyItemExists(String item)
 	{
-		String[] column = { HistoryDB.QUICK_CONNECT_TABLE_COL_ITEM };
-		SQLiteDatabase db = getReadableDatabase();
-		Cursor cursor = db.query(HistoryDB.QUICK_CONNECT_TABLE_NAME, column,
-		                         HistoryDB.QUICK_CONNECT_TABLE_COL_ITEM + " = '" + item + "'", null,
-		                         null, null, null);
-		boolean exists = (cursor.getCount() == 1);
-		cursor.close();
-		return exists;
+		return dao.exists(item) > 0;
 	}
 
 	public void removeHistoryItem(String hostname)
 	{
-		SQLiteDatabase db = getWritableDatabase();
-		db.delete(HistoryDB.QUICK_CONNECT_TABLE_NAME,
-		          HistoryDB.QUICK_CONNECT_TABLE_COL_ITEM + " = '" + hostname + "'", null);
-	}
-
-	// safety wrappers
-	// in case of getReadableDatabase it could happen that upgradeDB gets called which is
-	// a problem if the DB is only readable
-	private SQLiteDatabase getWritableDatabase()
-	{
-		return historyDB.getWritableDatabase();
-	}
-
-	private SQLiteDatabase getReadableDatabase()
-	{
-		SQLiteDatabase db;
-		try
-		{
-			db = historyDB.getReadableDatabase();
-		}
-		catch (SQLiteException e)
-		{
-			db = historyDB.getWritableDatabase();
-		}
-		return db;
+		dao.deleteByItem(hostname);
 	}
 }

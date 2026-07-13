@@ -29,6 +29,7 @@
 /* #undef WITH_AAD */
 /* #undef WITH_CAIRO */
 /* #undef WITH_SWSCALE */
+/* #undef WITH_SWSCALE_LOADING */
 /* #undef WITH_RDPSND_DSOUND */
 
 /* #undef WITH_WINMM */
@@ -57,10 +58,12 @@
 /* #undef WITH_OPENCL */
 /* #undef WITH_MEDIA_FOUNDATION */
 /* #undef WITH_MEDIACODEC */
+/* #undef WITH_GFX_AV1 */
 #define WITH_OHOS_HWCODEC
 #define WITH_OHOS_HWCODEC_SURFACE
 
 /* #undef WITH_VAAPI */
+/* #undef WITH_VIDEOTOOLBOX */
 
 #define WITH_CHANNELS
 #define WITH_CLIENT_CHANNELS
@@ -140,6 +143,9 @@
 /* #undef CHANNEL_RDPEAR */
 /* #undef CHANNEL_RDPEAR_CLIENT */
 /* #undef CHANNEL_RDPEAR_SERVER */
+/* #undef CHANNEL_RDPEWA */
+/* #undef CHANNEL_RDPEWA_CLIENT */
+/* #undef CHANNEL_RDPEWA_SERVER */
 #define CHANNEL_RDPEI
 #define CHANNEL_RDPEI_CLIENT
 #define CHANNEL_RDPEI_SERVER
@@ -218,9 +224,6 @@
 /* #undef WITH_DEBUG_URBDRC */
 /* #undef WITH_DEBUG_TRANSPORT */
 /* #undef WITH_DEBUG_WND */
-/* #undef WITH_DEBUG_X11 */
-/* #undef WITH_DEBUG_X11_LOCAL_MOVESIZE */
-/* #undef WITH_DEBUG_XV */
 /* #undef WITH_DEBUG_RINGBUFFER */
 
 /* Proxy */

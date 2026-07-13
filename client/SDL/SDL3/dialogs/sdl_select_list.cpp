@@ -45,11 +45,11 @@ int SdlSelectList::run()
 		while (running)
 		{
 			if (!update())
-				throw;
+				throw std::exception();
 
 			SDL_Event event = {};
-			if (!SDL_WaitEvent(&event))
-				throw;
+			if (!SDL_WaitEventTimeout(&event, 30))
+				continue;
 			do
 			{
 				switch (event.type)
@@ -92,6 +92,11 @@ int SdlSelectList::run()
 								running = false;
 								res = static_cast<int>(CurrentActiveTextInput);
 								break;
+							case SDL_EVENT_WINDOW_OCCLUDED:
+							case SDL_EVENT_WINDOW_MINIMIZED:
+							case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+							case SDL_EVENT_TERMINATING:
+							case SDL_EVENT_WINDOW_DESTROYED:
 							case SDLK_ESCAPE:
 								running = false;
 								res = INPUT_BUTTON_CANCEL;
@@ -106,9 +111,9 @@ int SdlSelectList::run()
 						reset_mouseover();
 						if (TextInputIndex >= 0)
 						{
-							auto& cur = _list[WINPR_ASSERTING_INT_CAST(size_t, TextInputIndex)];
+							auto& cur = _list.at(WINPR_ASSERTING_INT_CAST(size_t, TextInputIndex));
 							if (!cur.mouseover(true))
-								throw;
+								throw std::exception();
 						}
 
 						_buttons.set_mouseover(event.button.x, event.button.y);
@@ -138,18 +143,19 @@ int SdlSelectList::run()
 					default:
 						break;
 				}
-			} while (SDL_PollEvent(&event));
+			} while (running && SDL_PollEvent(&event));
+
 			reset_highlight();
 			if (CurrentActiveTextInput >= 0)
 			{
-				auto& cur = _list[WINPR_ASSERTING_INT_CAST(size_t, CurrentActiveTextInput)];
+				auto& cur = _list.at(WINPR_ASSERTING_INT_CAST(size_t, CurrentActiveTextInput));
 				if (!cur.highlight(true))
-					throw;
+					throw std::exception();
 			}
-
-			if (!update())
-				throw;
 		}
+
+		SDL_PumpEvents();
+		SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_USER);
 	}
 	catch (...)
 	{
@@ -174,7 +180,7 @@ ssize_t SdlSelectList::get_index(const SDL_MouseButtonEvent& button)
 	const auto y = button.y;
 	for (size_t i = 0; i < _list.size(); i++)
 	{
-		auto& cur = _list[i];
+		auto& cur = _list.at(i);
 		auto r = cur.rect();
 
 		if ((x >= r.x) && (x <= r.x + r.w) && (y >= r.y) && (y <= r.y + r.h))

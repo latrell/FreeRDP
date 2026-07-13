@@ -78,7 +78,7 @@ void region16_init(REGION16* region)
 {
 	WINPR_ASSERT(region);
 
-	const REGION16 empty = { 0 };
+	const REGION16 empty = WINPR_C_ARRAY_INIT;
 	*region = empty;
 }
 
@@ -97,11 +97,11 @@ const RECTANGLE_16* region16_rects(const REGION16* region, UINT32* nbRects)
 		*nbRects = 0;
 
 	if (!region)
-		return NULL;
+		return nullptr;
 
 	REGION16_DATA* data = region->data;
 	if (!data)
-		return NULL;
+		return nullptr;
 
 	if (nbRects)
 		*nbRects = WINPR_ASSERTING_INT_CAST(UINT32, data->nbRects);
@@ -116,7 +116,7 @@ static inline RECTANGLE_16* region16_rects_noconst(REGION16* region)
 	REGION16_DATA* data = region->data;
 
 	if (!data)
-		return NULL;
+		return nullptr;
 
 	return data->rects;
 }
@@ -124,7 +124,7 @@ static inline RECTANGLE_16* region16_rects_noconst(REGION16* region)
 const RECTANGLE_16* region16_extents(const REGION16* region)
 {
 	if (!region)
-		return NULL;
+		return nullptr;
 
 	return &region->extents;
 }
@@ -132,7 +132,7 @@ const RECTANGLE_16* region16_extents(const REGION16* region)
 static RECTANGLE_16* region16_extents_noconst(REGION16* region)
 {
 	if (!region)
-		return NULL;
+		return nullptr;
 
 	return &region->extents;
 }
@@ -144,7 +144,7 @@ BOOL rectangle_is_empty(const RECTANGLE_16* rect)
 	/* A rectangle with width <= 0 or height <= 0 should be regarded
 	 * as empty.
 	 */
-	return ((rect->left >= rect->right) || (rect->top >= rect->bottom)) ? TRUE : FALSE;
+	return ((rect->left >= rect->right) || (rect->top >= rect->bottom));
 }
 
 BOOL region16_is_empty(const REGION16* region)
@@ -161,14 +161,12 @@ BOOL rectangles_equal(const RECTANGLE_16* r1, const RECTANGLE_16* r2)
 	WINPR_ASSERT(r2);
 
 	return ((r1->left == r2->left) && (r1->top == r2->top) && (r1->right == r2->right) &&
-	        (r1->bottom == r2->bottom))
-	           ? TRUE
-	           : FALSE;
+	        (r1->bottom == r2->bottom));
 }
 
 BOOL rectangles_intersects(const RECTANGLE_16* r1, const RECTANGLE_16* r2)
 {
-	RECTANGLE_16 tmp = { 0 };
+	RECTANGLE_16 tmp = WINPR_C_ARRAY_INIT;
 	return rectangles_intersection(r1, r2, &tmp);
 }
 
@@ -185,6 +183,35 @@ BOOL rectangles_intersection(const RECTANGLE_16* r1, const RECTANGLE_16* r2, REC
 	return (dst->left < dst->right) && (dst->top < dst->bottom);
 }
 
+const char* rectangle_to_string(const RECTANGLE_16* rect, char* buffer, size_t length)
+{
+	if (!buffer || (length < 2))
+		return nullptr;
+	if (!rect)
+		(void)_snprintf(buffer, length - 1, "{ nullptr }");
+	else
+		(void)_snprintf(buffer, length - 1, "{%" PRIu16 "x%" PRIu16 "-%" PRIu16 "x%" PRIu16 "}",
+		                rect->left, rect->top, rect->right, rect->bottom);
+	return buffer;
+}
+
+RECTANGLE_16* rectangles_clone(const RECTANGLE_16* rects, size_t count)
+{
+	if (count == 0)
+		return nullptr;
+	if (count > SIZE_MAX / sizeof(RECTANGLE_16))
+		return nullptr;
+
+	WINPR_ASSERT(rects);
+
+	RECTANGLE_16* clone = calloc(count, sizeof(RECTANGLE_16));
+	if (!clone)
+		return nullptr;
+
+	memcpy(clone, rects, sizeof(RECTANGLE_16) * count);
+	return clone;
+}
+
 static void freeRegion(REGION16_DATA* data)
 {
 	if (data)
@@ -197,9 +224,9 @@ void region16_clear(REGION16* region)
 	WINPR_ASSERT(region);
 
 	freeRegion(region->data);
-	region->data = NULL;
+	region->data = nullptr;
 
-	const RECTANGLE_16 empty = { 0 };
+	const RECTANGLE_16 empty = WINPR_C_ARRAY_INIT;
 	region->extents = empty;
 }
 
@@ -209,7 +236,7 @@ static REGION16_DATA* allocateRegion(size_t nbItems)
 {
 	REGION16_DATA* data = calloc(1, sizeof(REGION16_DATA));
 	if (!data)
-		return NULL;
+		return nullptr;
 
 	if (nbItems > 0)
 	{
@@ -217,7 +244,7 @@ static REGION16_DATA* allocateRegion(size_t nbItems)
 		if (!data->rects)
 		{
 			free(data);
-			return NULL;
+			return nullptr;
 		}
 	}
 
@@ -234,10 +261,10 @@ static inline RECTANGLE_16* nextRect(REGION16_DATA* data, size_t index)
 		if (!rects)
 		{
 			freeRegion(data);
-			return NULL;
+			return nullptr;
 		}
 
-		const RECTANGLE_16 empty = { 0 };
+		const RECTANGLE_16 empty = WINPR_C_ARRAY_INIT;
 		rects[index] = empty;
 		data->nbRects = index + 1;
 		data->rects = rects;
@@ -251,14 +278,14 @@ static BOOL resizeRegion(REGION16* region, size_t nbItems)
 	if (nbItems == 0)
 	{
 		freeRegion(region->data);
-		region->data = NULL;
+		region->data = nullptr;
 		return TRUE;
 	}
 
 	if (!region->data)
 	{
 		region->data = allocateRegion(nbItems);
-		return region->data != NULL;
+		return region->data != nullptr;
 	}
 
 	RECTANGLE_16* rects = realloc(region->data->rects, nbItems * sizeof(RECTANGLE_16));
@@ -266,13 +293,13 @@ static BOOL resizeRegion(REGION16* region, size_t nbItems)
 	{
 		free(region->data->rects);
 		region->data->nbRects = 0;
-		region->data->rects = NULL;
+		region->data->rects = nullptr;
 		return FALSE;
 	}
 
 	for (size_t x = region->data->nbRects; x < nbItems; x++)
 	{
-		const RECTANGLE_16 empty = { 0 };
+		const RECTANGLE_16 empty = WINPR_C_ARRAY_INIT;
 		rects[x] = empty;
 	}
 	region->data->rects = rects;
@@ -286,7 +313,7 @@ static inline BOOL region16_copy_data(REGION16* dst, const REGION16* src)
 	WINPR_ASSERT(src);
 
 	freeRegion(dst->data);
-	dst->data = NULL;
+	dst->data = nullptr;
 
 	if (src->data && (src->data->nbRects > 0))
 	{
@@ -332,6 +359,46 @@ void region16_print(const REGION16* region)
 		WLog_DBG(TAG, "(%" PRIu16 ",%" PRIu16 "-%" PRIu16 ",%" PRIu16 ")", rect->left, rect->top,
 		         rect->right, rect->bottom);
 	}
+}
+
+char* region16_to_string(const REGION16* region)
+{
+	if (!region)
+		return _strdup("REGION16{nullptr}");
+
+	UINT32 nbRects = 0;
+	const RECTANGLE_16* rects = region16_rects(region, &nbRects);
+
+	char* str = nullptr;
+	size_t slen = 0;
+	winpr_asprintf(&str, &slen, "REGION16{nrects=%" PRIu32 " [", nbRects);
+
+	UINT16 currentBandY = 0;
+	for (UINT32 i = 0; i < nbRects; i++)
+	{
+		const RECTANGLE_16* rect = &rects[i];
+
+		if (rect->top != currentBandY)
+		{
+			currentBandY = rect->top;
+			char* tmp = nullptr;
+			winpr_asprintf(&tmp, &slen, "%sband %" PRIu16 ":", str, currentBandY);
+			free(str);
+			str = tmp;
+		}
+
+		char buffer[64] = WINPR_C_ARRAY_INIT;
+		char* tmp = nullptr;
+		winpr_asprintf(&tmp, &slen, "%s, %s", str,
+		               rectangle_to_string(rect, buffer, sizeof(buffer)));
+		free(str);
+		str = tmp;
+	}
+
+	char* tmp = nullptr;
+	winpr_asprintf(&tmp, &slen, "%s]}", str);
+	free(str);
+	return tmp;
 }
 
 static BOOL region16_copy_band_with_union(REGION16_DATA* region, const RECTANGLE_16* src,
@@ -576,7 +643,7 @@ static BOOL region16_simplify_bands(REGION16* region)
 
 BOOL region16_union_rect(REGION16* dst, const REGION16* src, const RECTANGLE_16* rect)
 {
-	const RECTANGLE_16* nextBand = NULL;
+	const RECTANGLE_16* nextBand = nullptr;
 	UINT32 srcNbRects = 0;
 	UINT16 topInterBand = 0;
 	WINPR_ASSERT(src);
@@ -649,7 +716,7 @@ BOOL region16_union_rect(REGION16* dst, const REGION16* src, const RECTANGLE_16*
 			        +----+
 			*/
 			if (!region16_copy_band_with_union(newItems, currentBand, endSrcRect, currentBand->top,
-			                                   currentBand->bottom, NULL, &usedRects, &nextBand))
+			                                   currentBand->bottom, nullptr, &usedRects, &nextBand))
 				return FALSE;
 			topInterBand = rect->top;
 		}
@@ -684,7 +751,7 @@ BOOL region16_union_rect(REGION16* dst, const REGION16* src, const RECTANGLE_16*
 			if (rect->top > currentBand->top)
 			{
 				if (!region16_copy_band_with_union(newItems, currentBand, endSrcRect,
-				                                   currentBand->top, rect->top, NULL, &usedRects,
+				                                   currentBand->top, rect->top, nullptr, &usedRects,
 				                                   &nextBand))
 					return FALSE;
 				mergeTop = rect->top;
@@ -702,7 +769,7 @@ BOOL region16_union_rect(REGION16* dst, const REGION16* src, const RECTANGLE_16*
 			if (rect->bottom < currentBand->bottom)
 			{
 				if (!region16_copy_band_with_union(newItems, currentBand, endSrcRect, mergeBottom,
-				                                   currentBand->bottom, NULL, &usedRects,
+				                                   currentBand->bottom, nullptr, &usedRects,
 				                                   &nextBand))
 					return FALSE;
 			}
@@ -768,7 +835,7 @@ BOOL region16_union_rect(REGION16* dst, const REGION16* src, const RECTANGLE_16*
 
 BOOL region16_intersects_rect(const REGION16* src, const RECTANGLE_16* arg2)
 {
-	const RECTANGLE_16* endPtr = NULL;
+	const RECTANGLE_16* endPtr = nullptr;
 	UINT32 nbRects = 0;
 
 	if (!src || !src->data || !arg2)
@@ -798,9 +865,9 @@ BOOL region16_intersects_rect(const REGION16* src, const RECTANGLE_16* arg2)
 
 BOOL region16_intersect_rect(REGION16* dst, const REGION16* src, const RECTANGLE_16* rect)
 {
-	const RECTANGLE_16* endPtr = NULL;
+	const RECTANGLE_16* endPtr = nullptr;
 	UINT32 nbRects = 0;
-	RECTANGLE_16 common = { 0 };
+	RECTANGLE_16 common = WINPR_C_ARRAY_INIT;
 
 	WINPR_ASSERT(dst);
 	WINPR_ASSERT(src);
@@ -833,7 +900,7 @@ BOOL region16_intersect_rect(REGION16* dst, const REGION16* src, const RECTANGLE
 
 	RECTANGLE_16* dstPtr = newItems->rects;
 	UINT32 usedRects = 0;
-	RECTANGLE_16 newExtents = { 0 };
+	RECTANGLE_16 newExtents = WINPR_C_ARRAY_INIT;
 
 	/* accumulate intersecting rectangles, the final region16_simplify_bands() will
 	 * do all the bad job to recreate correct rectangles
@@ -883,5 +950,5 @@ void region16_uninit(REGION16* region)
 	WINPR_ASSERT(region);
 
 	freeRegion(region->data);
-	region->data = NULL;
+	region->data = nullptr;
 }

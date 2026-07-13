@@ -5,7 +5,7 @@
 
     <application
         android:name="com.freerdp.afreerdp.application.GlobalApp"
-        android:icon="@drawable/icon_launcher_freerdp"
+        android:icon="@mipmap/ic_launcher"
         android:label="aFreeRDP"
         android:resizeableActivity="true">
 
@@ -52,10 +52,11 @@
                 <data android:scheme="content" />
                 <data android:host="*" />
 
-                <!-- Ugly hack to match all files with a dot in its name.
-                Remove if a better way is found / supported.
-                https://stackoverflow.com/questions/3400072/pathpattern-to-match-file-extension-does-not-work-if-a-period-exists-elsewhere-i/8599921#8599921
-                -->
+                <!-- API 31+: clean suffix match -->
+                <data android:pathSuffix=".rdp" />
+                <data android:pathSuffix=".rdpw" />
+
+                <!-- API 29-30 fallback: pathPattern can't skip dots, one entry per dot count -->
                 <data android:pathPattern=".*\\.rdp" />
                 <data android:pathPattern=".*\\..*\\.rdp" />
                 <data android:pathPattern=".*\\..*\\..*\\.rdp" />
@@ -65,6 +66,15 @@
                 <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\..*\\.rdp" />
                 <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\..*\\..*\\.rdp" />
                 <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\..*\\..*\\..*\\.rdp" />
+                <data android:pathPattern=".*\\.rdpw" />
+                <data android:pathPattern=".*\\..*\\.rdpw" />
+                <data android:pathPattern=".*\\..*\\..*\\.rdpw" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.rdpw" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\.rdpw" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\.rdpw" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\..*\\.rdpw" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\..*\\..*\\.rdpw" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\..*\\..*\\..*\\..*\\..*\\.rdpw" />
             </intent-filter>
         </activity>
 
@@ -76,30 +86,23 @@
             android:name="com.freerdp.freerdpcore.services.SessionRequestHandlerActivity"
             android:excludeFromRecents="true"
             android:noHistory="true"
-            android:theme="@android:style/Theme.NoDisplay">
+            android:theme="@style/Theme.Main">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
             </intent-filter>
         </activity>
 
-        <activity-alias
-            android:exported="true"
-            android:name=".services.SessionRequestHandlerActivity"
-            android:targetActivity="com.freerdp.freerdpcore.services.SessionRequestHandlerActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.SEARCH" />
-            </intent-filter>
-            <meta-data
-                android:name="android.app.searchable"
-                android:resource="@xml/searchable" />
-        </activity-alias>
+        <meta-data android:name="com.samsung.android.keepalive.density" android:value="true"/>
 
         <provider
-            android:name="com.freerdp.freerdpcore.services.FreeRDPSuggestionProvider"
-            android:authorities="com.freerdp.afreerdp.services.freerdpsuggestionprovider"
-            android:exported="false"></provider>
-
-        <meta-data android:name="com.samsung.android.keepalive.density" android:value="true"/>
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.freerdp.afreerdp.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
 
     </application>
 
