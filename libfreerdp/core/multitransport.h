@@ -45,6 +45,12 @@ typedef state_run_t (*MultiTransportResponseCb)(rdpMultitransport* multi, UINT32
 #define RDPUDP_COOKIE_HASHLEN 32
 
 WINPR_ATTR_NODISCARD
+FREERDP_LOCAL BOOL multitransport_set_request_callback(rdpMultitransport* multi,
+                                                       MultiTransportRequestCb callback);
+
+FREERDP_LOCAL rdpContext* multitransport_get_context(const rdpMultitransport* multi);
+
+WINPR_ATTR_NODISCARD
 FREERDP_LOCAL state_run_t multitransport_recv_request(rdpMultitransport* multi, wStream* s);
 
 WINPR_ATTR_NODISCARD

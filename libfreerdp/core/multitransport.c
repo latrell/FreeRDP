@@ -48,6 +48,23 @@ enum
 
 #define TAG FREERDP_TAG("core.multitransport")
 
+BOOL multitransport_set_request_callback(rdpMultitransport* multi, MultiTransportRequestCb callback)
+{
+	if (!multi || !callback)
+		return FALSE;
+
+	multi->MtRequest = callback;
+	return TRUE;
+}
+
+rdpContext* multitransport_get_context(const rdpMultitransport* multi)
+{
+	if (!multi || !multi->rdp)
+		return nullptr;
+
+	return multi->rdp->context;
+}
+
 state_run_t multitransport_recv_request(rdpMultitransport* multi, wStream* s)
 {
 	WINPR_ASSERT(multi);

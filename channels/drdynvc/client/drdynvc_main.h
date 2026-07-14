@@ -105,6 +105,7 @@ typedef struct
 	ZGFX_CONTEXT* decompressor;
 	CRITICAL_SECTION lock;
 	DVCMAN_CHANNEL_STATS stats;
+	UINT32 udpTunnelType;
 } DVCMAN_CHANNEL;
 
 typedef enum
@@ -141,6 +142,17 @@ struct drdynvc_plugin
 	rdpContext* rdpcontext;
 
 	IWTSVirtualChannelManager* channel_mgr;
+
+	CRITICAL_SECTION udpLock;
+	BOOL udpLockInitialized;
+	CRITICAL_SECTION udpReceiveLock;
+	BOOL udpReceiveLockInitialized;
+	pcDrdynvcUdpSend udpSend;
+	void* udpUserData;
+	UINT32 udpTunnelMask;
+	UINT32 udpNegotiatedMask;
+	UINT64 udpGeneration;
+	BOOL softSyncActive;
 };
 
 #endif /* FREERDP_CHANNEL_DRDYNVC_CLIENT_MAIN_H */

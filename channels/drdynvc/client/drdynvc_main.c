@@ -53,9 +53,25 @@ static const char* channel_state2str(DVC_CHANNEL_STATE state)
 static void dvcman_channel_free(DVCMAN_CHANNEL* channel);
 static UINT dvcman_channel_close(DVCMAN_CHANNEL* channel, BOOL perRequest, BOOL fromHashTableFn);
 static void dvcman_free(drdynvcPlugin* drdynvc, IWTSVirtualChannelManager* pChannelMgr);
-static UINT drdynvc_write_data(drdynvcPlugin* drdynvc, UINT32 ChannelId, const BYTE* data,
+static UINT drdynvc_write_data(drdynvcPlugin* drdynvc, DVCMAN_CHANNEL* channel, const BYTE* data,
                                UINT32 dataSize, BOOL* close, DVCMAN_CHANNEL_STATS* stats);
 static UINT drdynvc_send(drdynvcPlugin* drdynvc, wStream* s, DVCMAN_CHANNEL_STATS* stats);
+
+enum
+{
+	DRDYNVC_QUEUE_TCP_PDU = 0,
+	DRDYNVC_QUEUE_UDP_PDU = 1
+};
+
+typedef struct
+{
+	wStream* data;
+	UINT32 tunnelType;
+	UINT32 channelId;
+	UINT64 generation;
+	UINT8 command;
+	BOOL bindGeneration;
+} DRDYNVC_UDP_QUEUE_ITEM;
 
 static void dvcman_wtslistener_free(DVCMAN_LISTENER* listener)
 {
@@ -249,6 +265,102 @@ static DVCMAN_CHANNEL* dvcman_get_channel_by_id(IWTSVirtualChannelManager* pChan
 
 	HashTable_Unlock(dvcman->channelsById);
 	return dvcChannel;
+}
+
+static UINT32 drdynvc_udp_tunnel_mask(UINT32 tunnelType)
+{
+	switch (tunnelType)
+	{
+		case TUNNELTYPE_UDPFECR:
+			return DRDYNVC_UDP_TUNNEL_MASK_FECR;
+
+		case TUNNELTYPE_UDPFECL:
+			return DRDYNVC_UDP_TUNNEL_MASK_FECL;
+
+		default:
+			return 0;
+	}
+}
+
+static drdynvcPlugin* drdynvc_get_plugin_from_context(DrdynvcClientContext* context)
+{
+	if (!context || !context->handle)
+		return nullptr;
+
+	drdynvcPlugin* drdynvc = (drdynvcPlugin*)context->handle;
+	if ((drdynvc->context != context) || !drdynvc->udpLockInitialized ||
+	    !drdynvc->udpReceiveLockInitialized)
+		return nullptr;
+
+	return drdynvc;
+}
+
+static BOOL drdynvc_udp_clear_route(WINPR_ATTR_UNUSED const void* key, void* value,
+                                    WINPR_ATTR_UNUSED void* arg)
+{
+	DVCMAN_CHANNEL* channel = (DVCMAN_CHANNEL*)value;
+	WINPR_ASSERT(channel);
+	channel->udpTunnelType = 0;
+	return TRUE;
+}
+
+static void drdynvc_clear_udp_routes_locked(drdynvcPlugin* drdynvc)
+{
+	WINPR_ASSERT(drdynvc);
+
+	if (drdynvc->channel_mgr)
+	{
+		DVCMAN* dvcman = (DVCMAN*)drdynvc->channel_mgr;
+		(void)HashTable_Foreach(dvcman->channelsById, drdynvc_udp_clear_route, nullptr);
+	}
+
+	drdynvc->udpNegotiatedMask = 0;
+	drdynvc->softSyncActive = FALSE;
+	drdynvc->udpGeneration++;
+}
+
+static void drdynvc_clear_udp_transport_locked(drdynvcPlugin* drdynvc)
+{
+	WINPR_ASSERT(drdynvc);
+	drdynvc_clear_udp_routes_locked(drdynvc);
+	drdynvc->udpSend = nullptr;
+	drdynvc->udpUserData = nullptr;
+	drdynvc->udpTunnelMask = 0;
+}
+
+UINT drdynvc_set_udp_transport(DrdynvcClientContext* context, pcDrdynvcUdpSend send, void* userData,
+                               UINT32 tunnelMask)
+{
+	drdynvcPlugin* drdynvc = drdynvc_get_plugin_from_context(context);
+	if (!drdynvc || !send || ((tunnelMask & ~DRDYNVC_UDP_TUNNEL_MASK_ALL) != 0))
+		return ERROR_INVALID_PARAMETER;
+
+	EnterCriticalSection(&drdynvc->udpLock);
+	if (drdynvc->softSyncActive &&
+	    ((tunnelMask & drdynvc->udpNegotiatedMask) != drdynvc->udpNegotiatedMask))
+	{
+		LeaveCriticalSection(&drdynvc->udpLock);
+		return ERROR_INVALID_STATE;
+	}
+
+	drdynvc->udpSend = send;
+	drdynvc->udpUserData = userData;
+	drdynvc->udpTunnelMask = tunnelMask;
+	LeaveCriticalSection(&drdynvc->udpLock);
+	return CHANNEL_RC_OK;
+}
+
+void drdynvc_clear_udp_transport(DrdynvcClientContext* context)
+{
+	drdynvcPlugin* drdynvc = drdynvc_get_plugin_from_context(context);
+	if (!drdynvc)
+		return;
+
+	EnterCriticalSection(&drdynvc->udpReceiveLock);
+	EnterCriticalSection(&drdynvc->udpLock);
+	drdynvc_clear_udp_transport_locked(drdynvc);
+	LeaveCriticalSection(&drdynvc->udpLock);
+	LeaveCriticalSection(&drdynvc->udpReceiveLock);
 }
 
 static IWTSVirtualChannel* dvcman_find_channel_by_id(IWTSVirtualChannelManager* pChannelMgr,
@@ -686,10 +798,14 @@ static UINT dvcman_write_channel(IWTSVirtualChannel* pChannel, ULONG cbSize, con
 	WINPR_UNUSED(pReserved);
 	if (!channel || !channel->dvcman)
 		return CHANNEL_RC_BAD_CHANNEL;
+	drdynvcPlugin* drdynvc = channel->dvcman->drdynvc;
+	if (!drdynvc)
+		return CHANNEL_RC_BAD_CHANNEL_HANDLE;
 
 	EnterCriticalSection(&(channel->lock));
-	status = drdynvc_write_data(channel->dvcman->drdynvc, channel->channel_id, pBuffer, cbSize,
-	                            &close, &channel->stats);
+	EnterCriticalSection(&drdynvc->udpLock);
+	status = drdynvc_write_data(drdynvc, channel, pBuffer, cbSize, &close, &channel->stats);
+	LeaveCriticalSection(&drdynvc->udpLock);
 	LeaveCriticalSection(&(channel->lock));
 	/* Close delayed, it removes the channel struct */
 	if (close)
@@ -985,16 +1101,10 @@ static UINT dvcman_receive_channel_data(DVCMAN_CHANNEL* channel, wStream* data,
 		/* Fragmented data */
 		if (Stream_GetPosition(channel->dvc_data) + dataSize > channel->dvc_data_length)
 		{
-			/* Soft-Sync TCP→UDP 迁移期间，同一通道可能同时收到 TCP 和 UDP 的分片。
-			 * TCP 的 DATA_FIRST 声明了长度 L，但 UDP 的分片来自不同帧，超出 L。
-			 * 丢弃旧分片缓冲区（不关闭通道），让下一个 DATA_FIRST 重新开始。 */
-			WLog_Print(drdynvc->log, WLOG_WARN,
-			           "data exceeding declared length (pos=%" PRIuz " + %" PRIuz " > %" PRIu32
-			           "), discarding stale fragment",
-			           Stream_GetPosition(channel->dvc_data), dataSize,
-			           channel->dvc_data_length);
+			WLog_Print(drdynvc->log, WLOG_ERROR, "data exceeding declared length!");
 			Stream_Release(channel->dvc_data);
 			channel->dvc_data = nullptr;
+			status = ERROR_INVALID_DATA;
 			goto out;
 		}
 
@@ -1046,7 +1156,8 @@ static UINT8 drdynvc_write_variable_uint(wStream* s, UINT32 val)
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-static UINT drdynvc_send(drdynvcPlugin* drdynvc, wStream* s, DVCMAN_CHANNEL_STATS* stats)
+static UINT drdynvc_send_internal(drdynvcPlugin* drdynvc, wStream* s, DVCMAN_CHANNEL_STATS* stats,
+                                  BOOL ignoreNotConnected)
 {
 	UINT status = 0;
 
@@ -1071,7 +1182,7 @@ static UINT drdynvc_send(drdynvcPlugin* drdynvc, wStream* s, DVCMAN_CHANNEL_STAT
 
 		case CHANNEL_RC_NOT_CONNECTED:
 			Stream_Release(s);
-			return CHANNEL_RC_OK;
+			return ignoreNotConnected ? CHANNEL_RC_OK : status;
 
 		case CHANNEL_RC_BAD_CHANNEL_HANDLE:
 			Stream_Release(s);
@@ -1087,12 +1198,73 @@ static UINT drdynvc_send(drdynvcPlugin* drdynvc, wStream* s, DVCMAN_CHANNEL_STAT
 	}
 }
 
+static UINT drdynvc_send(drdynvcPlugin* drdynvc, wStream* s, DVCMAN_CHANNEL_STATS* stats)
+{
+	return drdynvc_send_internal(drdynvc, s, stats, TRUE);
+}
+
+static UINT drdynvc_send_strict(drdynvcPlugin* drdynvc, wStream* s, DVCMAN_CHANNEL_STATS* stats)
+{
+	return drdynvc_send_internal(drdynvc, s, stats, FALSE);
+}
+
+static UINT drdynvc_send_channel_data(drdynvcPlugin* drdynvc, DVCMAN_CHANNEL* channel,
+                                      UINT32 tunnelType, UINT64 routeGeneration, wStream* s,
+                                      DVCMAN_CHANNEL_STATS* stats)
+{
+	WINPR_ASSERT(drdynvc);
+	WINPR_ASSERT(channel);
+	WINPR_ASSERT(s);
+
+	EnterCriticalSection(&drdynvc->udpLock);
+	if (drdynvc->udpGeneration != routeGeneration)
+	{
+		LeaveCriticalSection(&drdynvc->udpLock);
+		Stream_Release(s);
+		return ERROR_INVALID_STATE;
+	}
+	if (tunnelType == 0)
+	{
+		const UINT status = drdynvc_send(drdynvc, s, stats);
+		LeaveCriticalSection(&drdynvc->udpLock);
+		return status;
+	}
+
+	const UINT32 tunnelMask = drdynvc_udp_tunnel_mask(tunnelType);
+	if (!drdynvc->softSyncActive || !drdynvc->udpSend ||
+	    ((drdynvc->udpNegotiatedMask & tunnelMask) == 0) ||
+	    ((drdynvc->udpTunnelMask & tunnelMask) == 0))
+	{
+		LeaveCriticalSection(&drdynvc->udpLock);
+		Stream_Release(s);
+		return ERROR_INVALID_STATE;
+	}
+
+	const size_t length = Stream_GetPosition(s);
+	if (stats)
+		stats->bytesOut += length;
+
+	const UINT status = drdynvc->udpSend(drdynvc->udpUserData, tunnelType, Stream_Buffer(s),
+	                                     WINPR_ASSERTING_INT_CAST(UINT32, length));
+	LeaveCriticalSection(&drdynvc->udpLock);
+	Stream_Release(s);
+
+	if (status != CHANNEL_RC_OK)
+	{
+		WLog_Print(drdynvc->log, WLOG_ERROR,
+		           "UDP multitransport write failed for channel %" PRIu32 " on tunnel %" PRIu32
+		           " with %s [%08" PRIX32 "]",
+		           channel->channel_id, tunnelType, WTSErrorToString(status), status);
+	}
+	return status;
+}
+
 /**
  * Function description
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-static UINT drdynvc_write_data(drdynvcPlugin* drdynvc, UINT32 ChannelId, const BYTE* data,
+static UINT drdynvc_write_data(drdynvcPlugin* drdynvc, DVCMAN_CHANNEL* channel, const BYTE* data,
                                UINT32 dataSize, BOOL* close, DVCMAN_CHANNEL_STATS* stats)
 {
 	size_t pos = 0;
@@ -1101,8 +1273,13 @@ static UINT drdynvc_write_data(drdynvcPlugin* drdynvc, UINT32 ChannelId, const B
 	UINT status = CHANNEL_RC_BAD_INIT_HANDLE;
 	DVCMAN* dvcman = nullptr;
 
-	if (!drdynvc)
+	if (!drdynvc || !channel)
 		return CHANNEL_RC_BAD_CHANNEL_HANDLE;
+	const UINT32 ChannelId = channel->channel_id;
+	EnterCriticalSection(&drdynvc->udpLock);
+	const UINT32 tunnelType = channel->udpTunnelType;
+	const UINT64 routeGeneration = drdynvc->udpGeneration;
+	LeaveCriticalSection(&drdynvc->udpLock);
 
 	dvcman = (DVCMAN*)drdynvc->channel_mgr;
 	WINPR_ASSERT(dvcman);
@@ -1124,6 +1301,21 @@ static UINT drdynvc_write_data(drdynvcPlugin* drdynvc, UINT32 ChannelId, const B
 	}
 	cbChId = drdynvc_write_variable_uint(data_out, ChannelId);
 	pos = Stream_GetPosition(data_out);
+	WINPR_ASSERT(pos <= CHANNEL_CHUNK_LENGTH);
+
+	/* MS-RDPEDYC 3.1.5 forbids fragmented DVC data on UDP-L. Do not silently
+	 * fall back to TCP or another tunnel after Soft-Sync because that would lose
+	 * the per-channel ordering guarantee. A loss-tolerant endpoint must submit a
+	 * message that fits in one DYNVC_DATA PDU. */
+	if ((tunnelType == TUNNELTYPE_UDPFECL) && (dataSize > (CHANNEL_CHUNK_LENGTH - pos)))
+	{
+		WLog_Print(drdynvc->log, WLOG_ERROR,
+		           "Refusing fragmented UDP-L DVC message for channel %" PRIu32 " (size=%" PRIu32
+		           ", max=%" PRIuz ")",
+		           ChannelId, dataSize, CHANNEL_CHUNK_LENGTH - pos);
+		Stream_Release(data_out);
+		return ERROR_INVALID_DATA;
+	}
 
 	if (dataSize == 0)
 	{
@@ -1142,7 +1334,8 @@ static UINT drdynvc_write_data(drdynvcPlugin* drdynvc, UINT32 ChannelId, const B
 		}
 		Stream_Write(data_out, data, dataSize);
 		stats->packetsOut++;
-		status = drdynvc_send(drdynvc, data_out, stats);
+		status = drdynvc_send_channel_data(drdynvc, channel, tunnelType, routeGeneration, data_out,
+		                                   stats);
 	}
 	else
 	{
@@ -1171,7 +1364,8 @@ static UINT drdynvc_write_data(drdynvcPlugin* drdynvc, UINT32 ChannelId, const B
 		if (dataSize > 0)
 			stats->fragmentsOut++;
 
-		status = drdynvc_send(drdynvc, data_out, stats);
+		status = drdynvc_send_channel_data(drdynvc, channel, tunnelType, routeGeneration, data_out,
+		                                   stats);
 
 		while (status == CHANNEL_RC_OK && dataSize > 0)
 		{
@@ -1215,13 +1409,14 @@ static UINT drdynvc_write_data(drdynvcPlugin* drdynvc, UINT32 ChannelId, const B
 			data += chunkLength;
 			dataSize -= chunkLength;
 
-			status = drdynvc_send(drdynvc, data_out, stats);
+			status = drdynvc_send_channel_data(drdynvc, channel, tunnelType, routeGeneration,
+			                                   data_out, stats);
 		}
 	}
 
 	if (status != CHANNEL_RC_OK)
 	{
-		WLog_Print(drdynvc->log, WLOG_ERROR, "VirtualChannelWriteEx failed with %s [%08" PRIX32 "]",
+		WLog_Print(drdynvc->log, WLOG_ERROR, "DVC channel data send failed with %s [%08" PRIX32 "]",
 		           WTSErrorToString(status), status);
 		return status;
 	}
@@ -1521,14 +1716,7 @@ static UINT drdynvc_process_data_first(drdynvcPlugin* drdynvc, int Sp, int cbChI
 	if (status == CHANNEL_RC_OK)
 		status = dvcman_receive_channel_data(channel, s, ThreadingFlags);
 
-	if (status == ERROR_INVALID_DATA)
-	{
-		WLog_Print(drdynvc->log, WLOG_WARN,
-		           "ChannelId %" PRIu32 " data_first invalid, discarding (keeping channel open)",
-		           ChannelId);
-		status = CHANNEL_RC_OK;
-	}
-	else if (status != CHANNEL_RC_OK)
+	if (status != CHANNEL_RC_OK)
 		status = dvcman_channel_close(channel, FALSE, FALSE);
 
 out:
@@ -1598,16 +1786,7 @@ static UINT drdynvc_process_data(drdynvcPlugin* drdynvc, int Sp, int cbChId, wSt
 	}
 
 	status = dvcman_receive_channel_data(channel, s, ThreadingFlags);
-	if (status == ERROR_INVALID_DATA)
-	{
-		/* Soft-Sync TCP→UDP 迁移期间，不同帧的分片可能被混合重组导致上层解析失败。
-		 * 不关闭通道——丢弃损坏数据后等下一个 DATA_FIRST 自然恢复。 */
-		WLog_Print(drdynvc->log, WLOG_WARN,
-		           "ChannelId %" PRIu32 " data invalid, discarding (keeping channel open)",
-		           ChannelId);
-		status = CHANNEL_RC_OK;
-	}
-	else if (status != CHANNEL_RC_OK)
+	if (status != CHANNEL_RC_OK)
 		status = dvcman_channel_close(channel, FALSE, FALSE);
 
 out:
@@ -1647,6 +1826,192 @@ static UINT drdynvc_process_close_request(drdynvcPlugin* drdynvc, int Sp, int cb
 	dvcman_channel_close(channel, TRUE, FALSE);
 	dvcman_channel_unref(channel);
 	return CHANNEL_RC_OK;
+}
+
+typedef struct
+{
+	UINT32 channelId;
+	UINT32 tunnelType;
+	DVCMAN_CHANNEL* channel;
+} DRDYNVC_SOFT_SYNC_ROUTE;
+
+static int drdynvc_soft_sync_route_compare(const void* lhs, const void* rhs)
+{
+	const DRDYNVC_SOFT_SYNC_ROUTE* left = (const DRDYNVC_SOFT_SYNC_ROUTE*)lhs;
+	const DRDYNVC_SOFT_SYNC_ROUTE* right = (const DRDYNVC_SOFT_SYNC_ROUTE*)rhs;
+	if (left->channelId < right->channelId)
+		return -1;
+	if (left->channelId > right->channelId)
+		return 1;
+	return 0;
+}
+
+static void drdynvc_soft_sync_routes_free(DRDYNVC_SOFT_SYNC_ROUTE* routes, size_t count)
+{
+	if (!routes)
+		return;
+
+	for (size_t x = 0; x < count; x++)
+	{
+		if (routes[x].channel)
+			dvcman_channel_unref(routes[x].channel);
+	}
+	free(routes);
+}
+
+static UINT drdynvc_process_soft_sync_request(drdynvcPlugin* drdynvc, int Sp, int cbChId,
+                                              wStream* s)
+{
+	UINT status = ERROR_INVALID_DATA;
+	UINT8 pad = 0;
+	UINT16 flags = 0;
+	UINT16 numTunnels = 0;
+	UINT32 length = 0;
+	UINT32 requestedMask = 0;
+	UINT32 tunnelTypes[2] = { 0 };
+	size_t routeCount = 0;
+	size_t routeCapacity = 0;
+	DRDYNVC_SOFT_SYNC_ROUTE* routes = nullptr;
+
+	WINPR_ASSERT(drdynvc);
+	WINPR_ASSERT(s);
+	if ((Sp != 0) || (cbChId != 0) || (drdynvc->state != DRDYNVC_STATE_READY) ||
+	    !drdynvc->channel_mgr || !drdynvc->rdpcontext || !drdynvc->rdpcontext->settings ||
+	    ((freerdp_settings_get_uint32(drdynvc->rdpcontext->settings, FreeRDP_MultitransportFlags) &
+	      SOFTSYNC_TCP_TO_UDP) == 0) ||
+	    !Stream_CheckAndLogRequiredLength(TAG, s, 9))
+		goto fail;
+
+	Stream_Read_UINT8(s, pad);
+	const size_t encodedLength = Stream_GetRemainingLength(s);
+	Stream_Read_UINT32(s, length);
+	Stream_Read_UINT16(s, flags);
+	Stream_Read_UINT16(s, numTunnels);
+
+	if ((pad != 0) || (length < 8) || ((size_t)length != encodedLength) ||
+	    ((flags & SOFT_SYNC_TCP_FLUSHED) == 0) ||
+	    ((flags & ~(SOFT_SYNC_TCP_FLUSHED | SOFT_SYNC_CHANNEL_LIST_PRESENT)) != 0))
+		goto fail;
+
+	const BOOL listsPresent = (flags & SOFT_SYNC_CHANNEL_LIST_PRESENT) != 0;
+	if ((!listsPresent && (numTunnels != 0)) ||
+	    (listsPresent && ((numTunnels == 0) || (numTunnels > ARRAYSIZE(tunnelTypes)))))
+		goto fail;
+
+	routeCapacity = Stream_GetRemainingLength(s) / sizeof(UINT32);
+	if (routeCapacity > (SIZE_MAX / sizeof(*routes)))
+	{
+		status = CHANNEL_RC_NO_MEMORY;
+		goto fail;
+	}
+	if (routeCapacity > 0)
+	{
+		routes = (DRDYNVC_SOFT_SYNC_ROUTE*)calloc(routeCapacity, sizeof(*routes));
+		if (!routes)
+		{
+			status = CHANNEL_RC_NO_MEMORY;
+			goto fail;
+		}
+	}
+
+	for (UINT16 x = 0; x < numTunnels; x++)
+	{
+		UINT16 channelCount = 0;
+		UINT32 tunnelType = 0;
+		if (!Stream_CheckAndLogRequiredLength(TAG, s, 6))
+			goto fail;
+
+		Stream_Read_UINT32(s, tunnelType);
+		Stream_Read_UINT16(s, channelCount);
+		const UINT32 tunnelMask = drdynvc_udp_tunnel_mask(tunnelType);
+		if ((tunnelMask == 0) || (channelCount == 0) || ((requestedMask & tunnelMask) != 0) ||
+		    ((size_t)channelCount > (Stream_GetRemainingLength(s) / sizeof(UINT32))) ||
+		    ((size_t)channelCount > (routeCapacity - routeCount)))
+			goto fail;
+
+		tunnelTypes[x] = tunnelType;
+		requestedMask |= tunnelMask;
+		for (UINT16 y = 0; y < channelCount; y++)
+		{
+			DRDYNVC_SOFT_SYNC_ROUTE* route = &routes[routeCount++];
+			Stream_Read_UINT32(s, route->channelId);
+			route->tunnelType = tunnelType;
+		}
+	}
+
+	if (Stream_GetRemainingLength(s) != 0)
+		goto fail;
+
+	if (routeCount > 1)
+	{
+		qsort(routes, routeCount, sizeof(*routes), drdynvc_soft_sync_route_compare);
+		for (size_t x = 1; x < routeCount; x++)
+		{
+			if (routes[x - 1].channelId == routes[x].channelId)
+				goto fail;
+		}
+	}
+
+	for (size_t x = 0; x < routeCount; x++)
+	{
+		routes[x].channel =
+		    dvcman_get_channel_by_id(drdynvc->channel_mgr, routes[x].channelId, TRUE);
+		if (!routes[x].channel || (routes[x].channel->state != DVC_CHANNEL_RUNNING) ||
+		    ((routes[x].tunnelType == TUNNELTYPE_UDPFECL) && routes[x].channel->dvc_data))
+			goto fail;
+	}
+
+	DVCMAN* dvcman = (DVCMAN*)drdynvc->channel_mgr;
+	wStream* response = StreamPool_Take(dvcman->pool, 6 + (size_t)numTunnels * 4);
+	if (!response)
+	{
+		status = CHANNEL_RC_NO_MEMORY;
+		goto fail;
+	}
+
+	Stream_Write_UINT8(response, (SOFT_SYNC_RESPONSE_PDU << 4));
+	Stream_Write_UINT8(response, 0);
+	Stream_Write_UINT32(response, numTunnels);
+	for (UINT16 x = 0; x < numTunnels; x++)
+		Stream_Write_UINT32(response, tunnelTypes[x]);
+
+	EnterCriticalSection(&drdynvc->udpLock);
+	if ((requestedMask != 0) &&
+	    (!drdynvc->udpSend || ((drdynvc->udpTunnelMask & requestedMask) != requestedMask)))
+	{
+		LeaveCriticalSection(&drdynvc->udpLock);
+		Stream_Release(response);
+		status = ERROR_INVALID_STATE;
+		goto fail;
+	}
+
+	status = drdynvc_send_strict(drdynvc, response, nullptr);
+	if (status == CHANNEL_RC_OK)
+	{
+		drdynvc_clear_udp_routes_locked(drdynvc);
+		/* The request lists define the server-write route. Use the same per-channel route as
+		 * the deterministic client-write policy after accepting the tunnel types. */
+		for (size_t x = 0; x < routeCount; x++)
+			routes[x].channel->udpTunnelType = routes[x].tunnelType;
+		drdynvc->udpNegotiatedMask = requestedMask;
+		drdynvc->softSyncActive = TRUE;
+	}
+	LeaveCriticalSection(&drdynvc->udpLock);
+
+	if (status != CHANNEL_RC_OK)
+		goto fail;
+
+	WLog_Print(drdynvc->log, WLOG_INFO,
+	           "Soft-Sync accepted %" PRIu16 " tunnel(s) with %" PRIuz " channel route(s)",
+	           numTunnels, routeCount);
+	drdynvc_soft_sync_routes_free(routes, routeCount);
+	return CHANNEL_RC_OK;
+
+fail:
+	WLog_Print(drdynvc->log, WLOG_WARN, "Rejecting invalid Soft-Sync request (status=%" PRIu32 ")",
+	           status);
+	drdynvc_soft_sync_routes_free(routes, routeCount);
+	return status;
 }
 
 /**
@@ -1689,83 +2054,7 @@ static UINT drdynvc_order_recv(drdynvcPlugin* drdynvc, wStream* s, UINT32 Thread
 			return drdynvc_process_close_request(drdynvc, Sp, cbChId, s);
 
 		case SOFT_SYNC_REQUEST_PDU:
-		{
-			/* MS-RDPEDYC 2.2.5.1: DYNVC_SOFT_SYNC_REQUEST
-			 * Byte 0:   已读取 (Cmd|Sp|cbChId)
-			 * Byte 1:   Pad (1B)
-			 * Byte 2-5: Length (4B LE)
-			 * Byte 6-7: Flags (2B LE)
-			 * Byte 8-9: NumberOfTunnels (2B LE)
-			 * Byte 10+: SoftSyncChannelLists (可变长度)
-			 */
-			if (!Stream_CheckAndLogRequiredLength(TAG, s, 9))
-				return ERROR_INVALID_DATA;
-
-			Stream_Seek(s, 1); /* Pad */
-			UINT32 ssLength = 0;
-			Stream_Read_UINT32(s, ssLength);
-			UINT16 ssFlags = 0;
-			Stream_Read_UINT16(s, ssFlags);
-			UINT16 numTunnels = 0;
-			Stream_Read_UINT16(s, numTunnels);
-
-			WLog_Print(drdynvc->log, WLOG_INFO,
-			           "Soft-Sync Request: flags=0x%04" PRIX16 " tunnels=%" PRIu16,
-			           ssFlags, numTunnels);
-
-			/* 解析每个 DYNVC_SOFT_SYNC_CHANNEL_LIST（记录日志） */
-			for (UINT16 t = 0; t < numTunnels; t++)
-			{
-				if (!Stream_CheckAndLogRequiredLength(TAG, s, 6))
-					break;
-				UINT32 tunnelType = 0;
-				Stream_Read_UINT32(s, tunnelType);
-				UINT16 numDVCs = 0;
-				Stream_Read_UINT16(s, numDVCs);
-				WLog_Print(drdynvc->log, WLOG_INFO,
-				           "  Tunnel 0x%08" PRIX32 ": %" PRIu16 " channels",
-				           tunnelType, numDVCs);
-				if (!Stream_CheckAndLogRequiredLength(TAG, s, (size_t)numDVCs * 4))
-					break;
-				for (UINT16 c = 0; c < numDVCs; c++)
-				{
-					UINT32 chId = 0;
-					Stream_Read_UINT32(s, chId);
-					WLog_Print(drdynvc->log, WLOG_INFO,
-					           "    ChannelId=%" PRIu32, chId);
-				}
-			}
-
-			/* 发送 DYNVC_SOFT_SYNC_RESPONSE (Cmd=0x09)
-			 * Byte 0:   0x90 (Cmd=0x09 << 4)
-			 * Byte 1:   Pad (0x00)
-			 * Byte 2-5: NumberOfTunnels (4B LE)
-			 * Byte 6+:  TunnelType (4B LE) × N
-			 */
-			{
-				DVCMAN* dvcman = (DVCMAN*)drdynvc->channel_mgr;
-				WINPR_ASSERT(dvcman);
-				wStream* resp = StreamPool_Take(dvcman->pool, 6 + (size_t)numTunnels * 4);
-				if (!resp)
-					return CHANNEL_RC_NO_MEMORY;
-				Stream_Write_UINT8(resp, (SOFT_SYNC_RESPONSE_PDU << 4)); /* Cmd */
-				Stream_Write_UINT8(resp, 0); /* Pad */
-				Stream_Write_UINT32(resp, numTunnels);
-				/* 回显所有 tunnel types 表示我们都接受 */
-				/* 为简化，需要重新解析 — 但我们已经跳过了数据。
-				 * 回退方案：回显常见的 UDPFECR(0x01) */
-				if (numTunnels >= 1)
-					Stream_Write_UINT32(resp, 0x00000001); /* TUNNELTYPE_UDPFECR */
-				if (numTunnels >= 2)
-					Stream_Write_UINT32(resp, 0x00000003); /* TUNNELTYPE_UDPFECL */
-				UINT sstatus = drdynvc_send(drdynvc, resp, nullptr);
-				WLog_Print(drdynvc->log, WLOG_INFO,
-				           "Soft-Sync Response sent (status=%" PRIu32 ")", sstatus);
-				if (sstatus != CHANNEL_RC_OK)
-					return sstatus;
-			}
-			return CHANNEL_RC_OK;
-		}
+			return drdynvc_process_soft_sync_request(drdynvc, Sp, cbChId, s);
 
 		case SOFT_SYNC_RESPONSE_PDU:
 			WLog_Print(drdynvc->log, WLOG_ERROR,
@@ -1778,34 +2067,165 @@ static UINT drdynvc_order_recv(drdynvcPlugin* drdynvc, wStream* s, UINT32 Thread
 	}
 }
 
-/* 全局 drdynvc 插件指针 — 用于 drdynvc_process_udp_data 查找实例 */
-static drdynvcPlugin* s_drdynvc_udp_instance = NULL;
-
-/**
- * 处理通过 UDP 多传输隧道接收的 DVC PDU 数据。
- * 由 hFreeRDP 的事件循环在读取 EMT Tunnel Data 后调用。
- * PDU 格式与 TCP DRDYNVC 通道相同（MS-RDPEDYC）。
- *
- * @param data   DVC PDU 原始字节（EMT 头部已剥离）
- * @param length 数据长度
- * @return 0 成功，否则 Win32 错误码
- */
-UINT drdynvc_process_udp_data(const BYTE* data, UINT32 length)
+static UINT drdynvc_udp_get_channel_info(const BYTE* data, UINT32 length, UINT32* channelId,
+                                         UINT8* command)
 {
-	drdynvcPlugin* drdynvc = s_drdynvc_udp_instance;
-	if (!drdynvc || !data || length == 0)
+	WINPR_ASSERT(channelId);
+	WINPR_ASSERT(command);
+	if (!data || (length < 2))
 		return ERROR_INVALID_PARAMETER;
 
-	/* 为 UDP 数据创建临时流（只读，不拥有缓冲区） */
-	wStream sbuffer = { 0 };
-	wStream* s = Stream_StaticInit(&sbuffer, (BYTE*)data, length);
+	const UINT8 value = data[0];
+	const UINT8 Cmd = (value & 0xf0) >> 4;
+	const UINT8 Sp = (value & 0x0c) >> 2;
+	const UINT8 cbChId = value & 0x03;
+	if ((Cmd != DATA_FIRST_PDU) && (Cmd != DATA_FIRST_COMPRESSED_PDU) && (Cmd != DATA_PDU) &&
+	    (Cmd != DATA_COMPRESSED_PDU))
+		return ERROR_INVALID_DATA;
+	if ((cbChId == 3) || (((Cmd == DATA_PDU) || (Cmd == DATA_COMPRESSED_PDU)) && (Sp != 0)) ||
+	    (((Cmd == DATA_FIRST_PDU) || (Cmd == DATA_FIRST_COMPRESSED_PDU)) && (Sp == 3)))
+		return ERROR_INVALID_DATA;
+
+	wStream buffer = WINPR_C_ARRAY_INIT;
+	wStream* s = Stream_StaticInit(&buffer, (BYTE*)&data[1], length - 1);
+	if (!s || !Stream_CheckAndLogRequiredLength(TAG, s, drdynvc_cblen_to_bytes(cbChId)))
+		return ERROR_INVALID_DATA;
+
+	*channelId = drdynvc_read_variable_uint(s, cbChId);
+	*command = Cmd;
+	return CHANNEL_RC_OK;
+}
+
+static UINT drdynvc_process_udp_queue_item(drdynvcPlugin* drdynvc,
+                                           const DRDYNVC_UDP_QUEUE_ITEM* item,
+                                           BOOL discardRouteMismatch)
+{
+	WINPR_ASSERT(drdynvc);
+	WINPR_ASSERT(item);
+	WINPR_ASSERT(item->data);
+	if (!drdynvc->channel_mgr)
+		return discardRouteMismatch ? CHANNEL_RC_OK : ERROR_INVALID_STATE;
+
+	EnterCriticalSection(&drdynvc->udpReceiveLock);
+	DVCMAN_CHANNEL* channel = dvcman_get_channel_by_id(drdynvc->channel_mgr, item->channelId, TRUE);
+	if (!channel)
+	{
+		LeaveCriticalSection(&drdynvc->udpReceiveLock);
+		return discardRouteMismatch ? CHANNEL_RC_OK : ERROR_INVALID_DATA;
+	}
+
+	const UINT32 tunnelMask = drdynvc_udp_tunnel_mask(item->tunnelType);
+	EnterCriticalSection(&drdynvc->udpLock);
+	const BOOL routeMatches =
+	    (item->bindGeneration || (drdynvc->udpGeneration == item->generation)) &&
+	    drdynvc->softSyncActive && drdynvc->udpSend &&
+	    ((drdynvc->udpTunnelMask & tunnelMask) != 0) &&
+	    ((drdynvc->udpNegotiatedMask & tunnelMask) != 0) &&
+	    (channel->udpTunnelType == item->tunnelType) && (channel->state == DVC_CHANNEL_RUNNING);
+	LeaveCriticalSection(&drdynvc->udpLock);
+	UINT status = CHANNEL_RC_OK;
+	if (routeMatches)
+	{
+		/* UDP-L is an unreliable transport and MS-RDPEDYC forbids both fragmented
+		 * and compressed DVC data on it. The public ingress rejects those commands
+		 * before queueing; this second check protects the asynchronous boundary and
+		 * ensures no pre-existing reassembly state can consume a single UDP-L DATA. */
+		if ((item->tunnelType == TUNNELTYPE_UDPFECL) &&
+		    ((item->command != DATA_PDU) || channel->dvc_data))
+		{
+			WLog_Print(drdynvc->log, WLOG_ERROR,
+			           "Rejected invalid UDP-L DVC data for channel %" PRIu32, channel->channel_id);
+			status = ERROR_INVALID_DATA;
+		}
+		else
+			status = drdynvc_order_recv(drdynvc, item->data, TRUE);
+	}
+	dvcman_channel_unref(channel);
+	LeaveCriticalSection(&drdynvc->udpReceiveLock);
+	if (!routeMatches)
+	{
+		WLog_Print(drdynvc->log, WLOG_DEBUG,
+		           "Discarded stale UDP DVC data for channel %" PRIu32 " generation %" PRIu64,
+		           item->channelId, item->generation);
+		return discardRouteMismatch ? CHANNEL_RC_OK : ERROR_INVALID_DATA;
+	}
+
+	return status;
+}
+
+UINT drdynvc_process_udp_data(DrdynvcClientContext* context, UINT32 tunnelType, const BYTE* data,
+                              UINT32 length)
+{
+	UINT32 channelId = 0;
+	UINT8 command = 0;
+	drdynvcPlugin* drdynvc = drdynvc_get_plugin_from_context(context);
+	const UINT32 tunnelMask = drdynvc_udp_tunnel_mask(tunnelType);
+	if (!drdynvc || !data || (length == 0) || (length > CHANNEL_CHUNK_LENGTH) || (tunnelMask == 0))
+		return ERROR_INVALID_PARAMETER;
+	if (!drdynvc->channel_mgr)
+		return ERROR_INVALID_STATE;
+
+	UINT status = drdynvc_udp_get_channel_info(data, length, &channelId, &command);
+	if (status != CHANNEL_RC_OK)
+		return status;
+
+	/* MS-RDPEDYC 3.1.5: UDP-L MUST NOT transport fragmented data. Compressed
+	 * DVC PDUs also require a reliable transport. Consequently every UDP-L EMT
+	 * message must contain exactly one uncompressed DYNVC_DATA PDU. */
+	if ((tunnelType == TUNNELTYPE_UDPFECL) && (command != DATA_PDU))
+	{
+		WLog_Print(drdynvc->log, WLOG_ERROR,
+		           "Rejected DVC command 0x%02" PRIx8 " on unreliable UDP-L tunnel", command);
+		return ERROR_INVALID_DATA;
+	}
+
+	DVCMAN* dvcman = (DVCMAN*)drdynvc->channel_mgr;
+	if (!dvcman->pool)
+		return ERROR_INVALID_STATE;
+
+	wStream* s = StreamPool_Take(dvcman->pool, length);
 	if (!s)
-		return ERROR_INTERNAL_ERROR;
+		return CHANNEL_RC_NO_MEMORY;
+	Stream_Write(s, data, length);
+	Stream_SealLength(s);
+	Stream_ResetPosition(s);
 
-	WLog_Print(drdynvc->log, WLOG_DEBUG,
-	           "drdynvc_process_udp_data: %" PRIu32 " bytes", length);
+	DRDYNVC_UDP_QUEUE_ITEM* item =
+	    (DRDYNVC_UDP_QUEUE_ITEM*)calloc(1, sizeof(DRDYNVC_UDP_QUEUE_ITEM));
+	if (!item)
+	{
+		Stream_Release(s);
+		return CHANNEL_RC_NO_MEMORY;
+	}
+	item->data = s;
+	item->tunnelType = tunnelType;
+	item->channelId = channelId;
+	item->command = command;
 
-	return drdynvc_order_recv(drdynvc, s, TRUE);
+	if (drdynvc->async)
+	{
+		EnterCriticalSection(&drdynvc->udpLock);
+		item->bindGeneration = !drdynvc->softSyncActive;
+		if (!item->bindGeneration)
+			item->generation = drdynvc->udpGeneration;
+		LeaveCriticalSection(&drdynvc->udpLock);
+		if (!drdynvc->queue ||
+		    !MessageQueue_Post(drdynvc->queue, nullptr, DRDYNVC_QUEUE_UDP_PDU, item, nullptr))
+		{
+			Stream_Release(s);
+			free(item);
+			return ERROR_INTERNAL_ERROR;
+		}
+		return CHANNEL_RC_OK;
+	}
+
+	EnterCriticalSection(&drdynvc->udpLock);
+	item->generation = drdynvc->udpGeneration;
+	LeaveCriticalSection(&drdynvc->udpLock);
+	status = drdynvc_process_udp_queue_item(drdynvc, item, FALSE);
+	Stream_Release(s);
+	free(item);
+	return status;
 }
 
 /**
@@ -1866,7 +2286,8 @@ static UINT drdynvc_virtual_channel_event_data_received(drdynvcPlugin* drdynvc, 
 
 		if (drdynvc->async)
 		{
-			if (!MessageQueue_Post(drdynvc->queue, nullptr, 0, (void*)data_in, nullptr))
+			if (!MessageQueue_Post(drdynvc->queue, nullptr, DRDYNVC_QUEUE_TCP_PDU, (void*)data_in,
+			                       nullptr))
 			{
 				WLog_Print(drdynvc->log, WLOG_ERROR, "MessageQueue_Post failed!");
 				return ERROR_INTERNAL_ERROR;
@@ -1874,7 +2295,9 @@ static UINT drdynvc_virtual_channel_event_data_received(drdynvcPlugin* drdynvc, 
 		}
 		else
 		{
+			EnterCriticalSection(&drdynvc->udpReceiveLock);
 			UINT error = drdynvc_order_recv(drdynvc, data_in, TRUE);
+			LeaveCriticalSection(&drdynvc->udpReceiveLock);
 			Stream_Release(data_in);
 
 			if (error)
@@ -1940,6 +2363,7 @@ static DWORD WINAPI drdynvc_virtual_channel_client_thread(LPVOID arg)
 	wStream* data = nullptr;
 	wMessage message = WINPR_C_ARRAY_INIT;
 	UINT error = CHANNEL_RC_OK;
+	BOOL fatalUdpProtocolError = FALSE;
 	drdynvcPlugin* drdynvc = (drdynvcPlugin*)arg;
 
 	if (!drdynvc)
@@ -1967,18 +2391,52 @@ static DWORD WINAPI drdynvc_virtual_channel_client_thread(LPVOID arg)
 		if (message.id == WMQ_QUIT)
 			break;
 
-		if (message.id == 0)
+		switch (message.id)
 		{
-			UINT32 ThreadingFlags = TRUE;
-			data = (wStream*)message.wParam;
-
-			if ((error = drdynvc_order_recv(drdynvc, data, ThreadingFlags)))
+			case DRDYNVC_QUEUE_TCP_PDU:
 			{
-				WLog_Print(drdynvc->log, WLOG_WARN,
-				           "drdynvc_order_recv failed with error %" PRIu32 "!", error);
+				UINT32 ThreadingFlags = TRUE;
+				data = (wStream*)message.wParam;
+
+				EnterCriticalSection(&drdynvc->udpReceiveLock);
+				if ((error = drdynvc_order_recv(drdynvc, data, ThreadingFlags)))
+				{
+					WLog_Print(drdynvc->log, WLOG_WARN,
+					           "drdynvc_order_recv failed with error %" PRIu32 "!", error);
+				}
+				LeaveCriticalSection(&drdynvc->udpReceiveLock);
+
+				Stream_Release(data);
+				break;
 			}
 
-			Stream_Release(data);
+			case DRDYNVC_QUEUE_UDP_PDU:
+			{
+				DRDYNVC_UDP_QUEUE_ITEM* item = (DRDYNVC_UDP_QUEUE_ITEM*)message.wParam;
+				if (item)
+				{
+					error = drdynvc_process_udp_queue_item(drdynvc, item, TRUE);
+					if (error != CHANNEL_RC_OK)
+					{
+						WLog_Print(drdynvc->log, WLOG_WARN,
+						           "UDP drdynvc_order_recv failed with error %" PRIu32 "!", error);
+						fatalUdpProtocolError = item->tunnelType == TUNNELTYPE_UDPFECL;
+					}
+					Stream_Release(item->data);
+					free(item);
+				}
+				break;
+			}
+
+			default:
+				break;
+		}
+
+		if (fatalUdpProtocolError)
+		{
+			WLog_Print(drdynvc->log, WLOG_ERROR,
+			           "Stopping DRDYNVC after an invalid UDP-L channel-data PDU");
+			break;
 		}
 	}
 
@@ -2001,16 +2459,35 @@ static DWORD WINAPI drdynvc_virtual_channel_client_thread(LPVOID arg)
 
 static void drdynvc_queue_object_free(void* obj)
 {
-	wStream* s = nullptr;
 	wMessage* msg = (wMessage*)obj;
-
-	if (!msg || (msg->id != 0))
+	if (!msg)
 		return;
 
-	s = (wStream*)msg->wParam;
+	switch (msg->id)
+	{
+		case DRDYNVC_QUEUE_TCP_PDU:
+		{
+			wStream* s = (wStream*)msg->wParam;
+			if (s)
+				Stream_Release(s);
+			break;
+		}
 
-	if (s)
-		Stream_Release(s);
+		case DRDYNVC_QUEUE_UDP_PDU:
+		{
+			DRDYNVC_UDP_QUEUE_ITEM* item = (DRDYNVC_UDP_QUEUE_ITEM*)msg->wParam;
+			if (item)
+			{
+				if (item->data)
+					Stream_Release(item->data);
+				free(item);
+			}
+			break;
+		}
+
+		default:
+			break;
+	}
 }
 
 static UINT drdynvc_virtual_channel_event_initialized(drdynvcPlugin* drdynvc, LPVOID pData,
@@ -2100,9 +2577,6 @@ static UINT drdynvc_virtual_channel_event_connected(drdynvcPlugin* drdynvc, LPVO
 
 	drdynvc->state = DRDYNVC_STATE_CAPABILITIES;
 
-	/* Store instance for UDP multitransport DVC data processing */
-	s_drdynvc_udp_instance = drdynvc;
-
 	if (drdynvc->async)
 	{
 		if (!(drdynvc->thread = CreateThread(nullptr, 0, drdynvc_virtual_channel_client_thread,
@@ -2132,6 +2606,8 @@ static UINT drdynvc_virtual_channel_event_disconnected(drdynvcPlugin* drdynvc)
 
 	if (!drdynvc)
 		return CHANNEL_RC_BAD_CHANNEL_HANDLE;
+
+	drdynvc_clear_udp_transport(drdynvc->context);
 
 	if (drdynvc->OpenHandle == 0)
 		return CHANNEL_RC_OK;
@@ -2205,6 +2681,7 @@ static UINT drdynvc_virtual_channel_event_terminated(drdynvcPlugin* drdynvc)
 {
 	if (!drdynvc)
 		return CHANNEL_RC_BAD_CHANNEL_HANDLE;
+	drdynvc_clear_udp_transport(drdynvc->context);
 
 	MessageQueue_Free(drdynvc->queue);
 	drdynvc->queue = nullptr;
@@ -2215,6 +2692,18 @@ static UINT drdynvc_virtual_channel_event_terminated(drdynvcPlugin* drdynvc)
 		drdynvc->channel_mgr = nullptr;
 	}
 	drdynvc->InitHandle = nullptr;
+	if (drdynvc->context)
+		drdynvc->context->handle = nullptr;
+	if (drdynvc->udpReceiveLockInitialized)
+	{
+		DeleteCriticalSection(&drdynvc->udpReceiveLock);
+		drdynvc->udpReceiveLockInitialized = FALSE;
+	}
+	if (drdynvc->udpLockInitialized)
+	{
+		DeleteCriticalSection(&drdynvc->udpLock);
+		drdynvc->udpLockInitialized = FALSE;
+	}
 	free(drdynvc->context);
 	free(drdynvc);
 	return CHANNEL_RC_OK;
@@ -2381,6 +2870,22 @@ FREERDP_ENTRY_POINT(BOOL VCAPITYPE VirtualChannelEntryEx(PCHANNEL_ENTRY_POINTS_E
 		WLog_ERR(TAG, "calloc failed!");
 		return FALSE;
 	}
+	drdynvc->log = WLog_Get(TAG);
+	if (!InitializeCriticalSectionEx(&drdynvc->udpLock, 0, 0))
+	{
+		WLog_ERR(TAG, "InitializeCriticalSectionEx failed!");
+		free(drdynvc);
+		return FALSE;
+	}
+	drdynvc->udpLockInitialized = TRUE;
+	if (!InitializeCriticalSectionEx(&drdynvc->udpReceiveLock, 0, 0))
+	{
+		WLog_ERR(TAG, "InitializeCriticalSectionEx failed!");
+		DeleteCriticalSection(&drdynvc->udpLock);
+		free(drdynvc);
+		return FALSE;
+	}
+	drdynvc->udpReceiveLockInitialized = TRUE;
 
 	drdynvc->channelDef.options =
 	    CHANNEL_OPTION_INITIALIZED | CHANNEL_OPTION_ENCRYPT_RDP | CHANNEL_OPTION_COMPRESS_RDP;
@@ -2397,6 +2902,8 @@ FREERDP_ENTRY_POINT(BOOL VCAPITYPE VirtualChannelEntryEx(PCHANNEL_ENTRY_POINTS_E
 		if (!context)
 		{
 			WLog_Print(drdynvc->log, WLOG_ERROR, "calloc failed!");
+			DeleteCriticalSection(&drdynvc->udpReceiveLock);
+			DeleteCriticalSection(&drdynvc->udpLock);
 			free(drdynvc);
 			return FALSE;
 		}
@@ -2414,7 +2921,6 @@ FREERDP_ENTRY_POINT(BOOL VCAPITYPE VirtualChannelEntryEx(PCHANNEL_ENTRY_POINTS_E
 			drdynvc->async = TRUE;
 	}
 
-	drdynvc->log = WLog_Get(TAG);
 	WLog_Print(drdynvc->log, WLOG_DEBUG, "VirtualChannelEntryEx");
 	CopyMemory(&(drdynvc->channelEntryPoints), pEntryPoints,
 	           sizeof(CHANNEL_ENTRY_POINTS_FREERDP_EX));
@@ -2430,6 +2936,8 @@ FREERDP_ENTRY_POINT(BOOL VCAPITYPE VirtualChannelEntryEx(PCHANNEL_ENTRY_POINTS_E
 		WLog_Print(drdynvc->log, WLOG_ERROR, "pVirtualChannelInit failed with %s [%08" PRIX32 "]",
 		           WTSErrorToString(rc), rc);
 		free(drdynvc->context);
+		DeleteCriticalSection(&drdynvc->udpReceiveLock);
+		DeleteCriticalSection(&drdynvc->udpLock);
 		free(drdynvc);
 		return FALSE;
 	}

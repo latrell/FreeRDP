@@ -63,6 +63,16 @@ extern "C"
 	                                           void* pInterface);
 	typedef UINT (*pcDrdynvcOnChannelDetached)(DrdynvcClientContext* context, const char* name,
 	                                           void* pInterface);
+	typedef UINT (*pcDrdynvcUdpSend)(void* userData, UINT32 tunnelType, const BYTE* data,
+	                                 UINT32 length);
+
+	/** UDP multitransport tunnel bits accepted by drdynvc_set_udp_transport. */
+	enum
+	{
+		DRDYNVC_UDP_TUNNEL_MASK_FECR = 0x01,
+		DRDYNVC_UDP_TUNNEL_MASK_FECL = 0x02,
+		DRDYNVC_UDP_TUNNEL_MASK_ALL = DRDYNVC_UDP_TUNNEL_MASK_FECR | DRDYNVC_UDP_TUNNEL_MASK_FECL
+	};
 
 	/** @brief Function pointer type for dynamic channel statistics
 	 *
@@ -94,15 +104,24 @@ extern "C"
 	};
 
 	/**
-	 * Process DVC PDU data received via UDP multitransport tunnel (MS-RDPEMT).
-	 * Called by the application's event loop after reading from the EMT tunnel.
-	 * PDU format is identical to TCP DRDYNVC channel (MS-RDPEDYC).
-	 *
-	 * @param data   Raw DVC PDU bytes (EMT header already stripped)
-	 * @param length Data length
-	 * @return 0 on success, otherwise a Win32 error code
+	 * Register the UDP multitransport writer for one drdynvc client instance.
+	 * tunnelMask uses DRDYNVC_UDP_TUNNEL_MASK_* bits and may be zero while no tunnel is ready.
+	 * The writer is invoked only for channel-data PDUs after a successful Soft-Sync exchange;
+	 * control PDUs stay on TCP.
 	 */
-	FREERDP_API UINT drdynvc_process_udp_data(const BYTE* data, UINT32 length);
+	FREERDP_API UINT drdynvc_set_udp_transport(DrdynvcClientContext* context, pcDrdynvcUdpSend send,
+	                                           void* userData, UINT32 tunnelMask);
+
+	/** Clear the UDP writer and all negotiated channel routes for one client instance. */
+	FREERDP_API void drdynvc_clear_udp_transport(DrdynvcClientContext* context);
+
+	/**
+	 * Process a DVC channel-data PDU received through one UDP multitransport tunnel.
+	 * The EMT header must already be removed. Control PDUs and channel/tunnel route
+	 * mismatches are rejected.
+	 */
+	FREERDP_API UINT drdynvc_process_udp_data(DrdynvcClientContext* context, UINT32 tunnelType,
+	                                          const BYTE* data, UINT32 length);
 
 #ifdef __cplusplus
 }
